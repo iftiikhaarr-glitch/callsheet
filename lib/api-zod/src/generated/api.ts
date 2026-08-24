@@ -134,6 +134,28 @@ export const LoadSampleProjectResponse = zod.object({
 
 
 /**
+ * @summary Upload and process a screenplay with Gemini
+ */
+export const ProcessScreenplayParams = zod.object({
+  "projectId": zod.coerce.number()
+})
+
+export const ProcessScreenplayBody = zod.object({
+  "file": zod.string().describe('The multipart file field containing the screenplay PDF or text file.')
+})
+
+export const ProcessScreenplayResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "filename": zod.string().nullable(),
+  "status": zod.enum(['draft', 'processing', 'ready']),
+  "sceneCount": zod.number(),
+  "progress": zod.number(),
+  "updatedAt": zod.string()
+})
+
+
+/**
  * @summary Update a scene or its tags
  */
 export const UpdateSceneParams = zod.object({

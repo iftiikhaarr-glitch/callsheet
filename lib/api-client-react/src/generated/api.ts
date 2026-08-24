@@ -26,7 +26,8 @@ import type {
   ProjectInput,
   ProjectUpdate,
   Scene,
-  SceneUpdate
+  SceneUpdate,
+  ScreenplayUpload
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -500,6 +501,80 @@ export const useLoadSampleProject = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getLoadSampleProjectMutationOptions(options));
+    }
+
+export const getProcessScreenplayUrl = (projectId: number,) => {
+
+
+
+
+  return `/api/projects/${projectId}/process`
+}
+
+/**
+ * @summary Upload and process a screenplay with Gemini
+ */
+export const processScreenplay = async (projectId: number,
+    screenplayUpload: ScreenplayUpload, options?: Parameters<typeof customFetch>[1]): Promise<Project> => {
+    const formData = new FormData();
+formData.append(`file`, screenplayUpload.file);
+
+  return customFetch<Project>(getProcessScreenplayUrl(projectId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getProcessScreenplayMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processScreenplay>>, TError,{projectId: number;data: BodyType<ScreenplayUpload>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof processScreenplay>>, TError,{projectId: number;data: BodyType<ScreenplayUpload>}, TContext> => {
+
+const mutationKey = ['processScreenplay'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof processScreenplay>>, {projectId: number;data: BodyType<ScreenplayUpload>}> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  processScreenplay(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProcessScreenplayMutationResult = NonNullable<Awaited<ReturnType<typeof processScreenplay>>>
+    export type ProcessScreenplayMutationBody = BodyType<ScreenplayUpload>
+    export type ProcessScreenplayMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Upload and process a screenplay with Gemini
+ */
+export const useProcessScreenplay = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processScreenplay>>, TError,{projectId: number;data: BodyType<ScreenplayUpload>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof processScreenplay>>,
+        TError,
+        {projectId: number;data: BodyType<ScreenplayUpload>},
+        TContext
+      > => {
+      return useMutation(getProcessScreenplayMutationOptions(options));
     }
 
 export const getUpdateSceneUrl = (projectId: number,

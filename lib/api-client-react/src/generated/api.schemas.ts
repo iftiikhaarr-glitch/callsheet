@@ -20,6 +20,11 @@ export interface ProjectUpdate {
   status?: string;
 }
 
+export interface ScreenplayUpload {
+  /** The multipart file field containing the screenplay PDF or text file. */
+  file: string;
+}
+
 export type ProjectStatus = typeof ProjectStatus[keyof typeof ProjectStatus];
 
 

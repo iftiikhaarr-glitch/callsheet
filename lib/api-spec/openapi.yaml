@@ -104,6 +104,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
+  /projects/{projectId}/process:
+    post:
+      operationId: processScreenplay
+      tags: [projects]
+      summary: Upload and process a screenplay with Gemini
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ScreenplayUpload"
+      responses:
+        "202":
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
   /projects/{projectId}/scenes/{sceneId}:
     patch:
       operationId: updateScene
@@ -156,6 +176,13 @@ components:
       properties:
         title: { type: string }
         status: { type: string }
+    ScreenplayUpload:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          description: The multipart file field containing the screenplay PDF or text file.
     Project:
       type: object
       required: [id, title, filename, status, sceneCount, progress, updatedAt]

@@ -17,4 +17,5 @@ export * from './scene';
 export * from './sceneElements';
 export * from './sceneUpdate';
 export * from './sceneUpdateElements';
+export * from './screenplayUpload';
 export * from './summary';

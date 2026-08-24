@@ -1,4 +1,11 @@
 import { Router, type IRouter } from "express";
+import { spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { Buffer } from "node:buffer";
+import { unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import multer from "multer";
 
 type Elements = Record<string, string[]>;
 type Scene = {
@@ -22,21 +29,6 @@ type Project = {
   progress: number;
   updatedAt: string;
 };
-
-const categories = [
-  "cast",
-  "background",
-  "props",
-  "wardrobe",
-  "vehicles",
-  "stunts",
-  "special_effects",
-  "visual_effects",
-  "animals",
-  "set_dressing",
-  "makeup_hair",
-  "sound_music",
-];
 
 const sampleScenes: Scene[] = [
   {
@@ -149,26 +141,55 @@ const projects: Project[] = [
   },
 ];
 
+const projectScenes = new Map<number, Scene[]>([[1, sampleScenes]]);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
+
 function detail(project: Project) {
+  const scenes = projectScenes.get(project.id) ?? [];
   const roles = new Map<string, number>();
-  sampleScenes.forEach((scene) =>
+  scenes.forEach((scene) =>
     (scene.elements.cast ?? []).forEach((role) => roles.set(role, (roles.get(role) ?? 0) + 1)),
   );
-  const flagged = sampleScenes
+  const flagged = scenes
     .filter((scene) => ["stunts", "visual_effects", "animals", "vehicles"].some((key) => (scene.elements[key] ?? []).length))
     .map((scene) => `Scene ${scene.number} · ${scene.location}`);
   return {
     ...project,
-    scenes: sampleScenes,
+    scenes,
     summary: {
-      totalScenes: sampleScenes.length,
-      totalEighths: sampleScenes.reduce((sum, scene) => sum + scene.pageEighths, 0),
-      uniqueLocations: new Set(sampleScenes.map((scene) => scene.location)).size,
+      totalScenes: scenes.length,
+      totalEighths: scenes.reduce((sum, scene) => sum + scene.pageEighths, 0),
+      uniqueLocations: new Set(scenes.map((scene) => scene.location)).size,
       uniqueRoles: roles.size,
       cast: [...roles.entries()].map(([name, sceneCount]) => ({ name, sceneCount })),
       flagged,
     },
   };
+}
+
+async function runGeminiBreakdown(file: Express.Multer.File): Promise<Scene[]> {
+  const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const tempPath = path.join(os.tmpdir(), `callsheet-${Date.now()}-${safeName}`);
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
+  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  await writeFile(tempPath, file.buffer);
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      const worker: ChildProcessWithoutNullStreams = spawn(pythonPath, [workerPath, tempPath], { env: process.env });
+      let stdout = "";
+      let stderr = "";
+      worker.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      worker.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      worker.on("error", reject);
+      worker.on("close", (code: number | null) => code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout || `Gemini worker exited with code ${code}`)));
+    });
+    const result = JSON.parse(output) as { scenes?: Scene[]; error?: string };
+    if (result.error || !result.scenes?.length) throw new Error(result.error || "Gemini returned no screenplay scenes.");
+    return result.scenes;
+  } finally {
+    await unlink(tempPath).catch(() => undefined);
+  }
 }
 
 const router: IRouter = Router();
@@ -207,10 +228,34 @@ router.post("/projects/:projectId/sample", (req, res) => {
   project.sceneCount = sampleScenes.length;
   project.progress = 100;
   project.filename = "the-last-signal-sample.pdf";
+  projectScenes.set(project.id, sampleScenes);
   return res.status(202).json(project);
 });
+router.post("/projects/:projectId/process", upload.single("file"), async (req, res) => {
+  const project = projects.find((item) => item.id === Number(req.params.projectId));
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  if (!req.file) return res.status(400).json({ error: "Attach a PDF or text screenplay as file." });
+  project.status = "processing";
+  project.progress = 8;
+  project.filename = req.file.originalname;
+  try {
+    const scenes = await runGeminiBreakdown(req.file);
+    projectScenes.set(project.id, scenes);
+    project.status = "ready";
+    project.progress = 100;
+    project.sceneCount = scenes.length;
+    project.updatedAt = new Date().toISOString();
+    return res.status(202).json(project);
+  } catch (error) {
+    project.status = "draft";
+    project.progress = 0;
+    req.log.error({ err: error }, "Gemini screenplay breakdown failed");
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Gemini screenplay breakdown failed." });
+  }
+});
 router.patch("/projects/:projectId/scenes/:sceneId", (req, res) => {
-  const scene = sampleScenes.find((item) => item.id === Number(req.params.sceneId));
+  const scenes = projectScenes.get(Number(req.params.projectId)) ?? [];
+  const scene = scenes.find((item) => item.id === Number(req.params.sceneId));
   if (!scene) return res.status(404).json({ error: "Scene not found" });
   if (typeof req.body?.synopsis === "string") scene.synopsis = req.body.synopsis;
   if (req.body?.elements && typeof req.body.elements === "object") scene.elements = { ...scene.elements, ...req.body.elements };

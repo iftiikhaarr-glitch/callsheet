@@ -30,17 +30,35 @@ export default function Home() {
   const [title, setTitle] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [activeMenu, setActiveMenu] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const sortedProjects = useMemo(() => [...(projects || [])].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)), [projects]);
-  const isBusy = createProject.isPending || loadSample.isPending;
+  const isBusy = createProject.isPending || loadSample.isPending || isUploading;
 
   const create = (sample = false) => {
+    setUploadError(null);
     const projectTitle = title.trim() || (sample ? 'The Last Signal' : selectedFile?.name.replace(/\.[^/.]+$/, '') || 'Untitled screenplay');
     createProject.mutate({ data: { title: projectTitle, filename: selectedFile?.name || (sample ? 'the-last-signal.fdx' : null) } }, {
-      onSuccess: (project) => {
+      onSuccess: async (project) => {
         queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
         if (sample) {
           loadSample.mutate({ projectId: project.id }, { onSuccess: () => setLocation(`/project/${project.id}`) });
+        } else if (selectedFile) {
+          setIsUploading(true);
+          try {
+            const body = new FormData();
+            body.append('file', selectedFile);
+            const response = await fetch(`/api/projects/${project.id}/process`, { method: 'POST', body });
+            const result = await response.json() as { error?: string };
+            if (!response.ok) throw new Error(result.error || 'Screenplay processing failed.');
+            await queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+            setLocation(`/project/${project.id}`);
+          } catch (error) {
+            setUploadError(error instanceof Error ? error.message : 'Screenplay processing failed.');
+          } finally {
+            setIsUploading(false);
+          }
         } else {
           setLocation(`/project/${project.id}`);
         }
@@ -105,25 +123,25 @@ export default function Home() {
             </div>
           </section>
         )}
-        {(createProject.isError || loadSample.isError) && <div className="mt-5 border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] px-4 py-3 text-xs text-destructive" data-testid="error-project-mutation">That project could not be started. Check the source file and try again.</div>}
+        {(createProject.isError || loadSample.isError || uploadError) && <div className="mt-5 border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] px-4 py-3 text-xs text-destructive" data-testid="error-project-mutation">{uploadError || 'That project could not be started. Check the source file and try again.'}</div>}
         <section className="mt-14 grid gap-4 border-t border-border pt-6 md:grid-cols-[1fr_auto] md:items-center">
           <p className="max-w-lg text-xs leading-5 text-muted-foreground">Callsheet turns a screenplay into a living stripboard: locations, time of day, cast, and every element your department needs to see.</p>
           <div className="flex items-center gap-2 font-mono-ui text-[10px] text-muted-foreground"><span className="h-2 w-2 rounded-full bg-[hsl(var(--chart-2))]" />System ready</div>
         </section>
       </main>
-      {showCreate && <CreateDialog title={title} setTitle={setTitle} selectedFile={selectedFile} setSelectedFile={setSelectedFile} fileInput={fileInput} onClose={() => setShowCreate(false)} onCreate={() => { setShowCreate(false); create(false); }} />}
+      {showCreate && <CreateDialog title={title} setTitle={setTitle} selectedFile={selectedFile} setSelectedFile={setSelectedFile} fileInput={fileInput} isUploading={isUploading} onClose={() => setShowCreate(false)} onCreate={() => { setShowCreate(false); create(false); }} />}
     </AppShell>
   );
 }
 
-function CreateDialog({ title, setTitle, selectedFile, setSelectedFile, fileInput, onClose, onCreate }: { title: string; setTitle: (value: string) => void; selectedFile: File | null; setSelectedFile: (file: File | null) => void; fileInput: RefObject<HTMLInputElement | null>; onClose: () => void; onCreate: () => void }) {
+function CreateDialog({ title, setTitle, selectedFile, setSelectedFile, fileInput, isUploading, onClose, onCreate }: { title: string; setTitle: (value: string) => void; selectedFile: File | null; setSelectedFile: (file: File | null) => void; fileInput: RefObject<HTMLInputElement | null>; isUploading: boolean; onClose: () => void; onCreate: () => void }) {
   return <div className="fixed inset-0 z-40 flex items-center justify-center bg-[hsl(var(--foreground)/.35)] p-5" role="dialog" aria-modal="true">
     <div className="animate-rise-in w-full max-w-lg border border-border bg-card p-6 shadow-2xl md:p-8">
       <div className="flex items-start justify-between"><div><p className="tracking-caps font-mono-ui text-[10px] text-[hsl(var(--chart-2))]">New breakdown</p><h2 className="mt-2 font-display text-2xl font-bold">Bring a script to set.</h2></div><button onClick={onClose} data-testid="button-close-create" className="p-1 text-muted-foreground hover:text-foreground"><X size={18} /></button></div>
       <label className="mt-7 block text-xs font-bold">Project title<input value={title} onChange={(event) => setTitle(event.target.value)} data-testid="input-project-title" placeholder="e.g. The Last Signal" className="mt-2 w-full border border-input bg-background px-3 py-3 text-sm outline-none transition-colors focus:border-accent" /></label>
       <input ref={fileInput} type="file" accept=".fdx,.pdf,.txt,.docx" className="hidden" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} data-testid="input-screenplay-file" />
       <button onClick={() => fileInput.current?.click()} data-testid="button-choose-file" className="mt-5 flex w-full items-center gap-3 border border-dashed border-input bg-background px-4 py-4 text-left hover:border-[hsl(var(--chart-2))]"><span className="flex h-9 w-9 items-center justify-center bg-secondary text-[hsl(var(--chart-2))]"><Upload size={16} /></span><span><strong className="block text-xs">{selectedFile ? selectedFile.name : 'Choose screenplay file'}</strong><small className="mt-1 block text-[11px] text-muted-foreground">FDX, PDF, DOCX or plain text</small></span></button>
-      <div className="mt-7 flex justify-end gap-3"><button onClick={onClose} data-testid="button-cancel-create" className="px-3 py-2 text-xs font-bold text-muted-foreground hover:text-foreground">Cancel</button><button onClick={onCreate} disabled={!title.trim() && !selectedFile} data-testid="button-create-project" className="bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40">Create breakdown</button></div>
+      <div className="mt-7 flex justify-end gap-3"><button onClick={onClose} disabled={isUploading} data-testid="button-cancel-create" className="px-3 py-2 text-xs font-bold text-muted-foreground hover:text-foreground disabled:opacity-40">Cancel</button><button onClick={onCreate} disabled={isUploading || (!title.trim() && !selectedFile)} data-testid="button-create-project" className="bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40">{isUploading ? 'Analyzing screenplay…' : 'Create breakdown'}</button></div>
     </div>
   </div>;
 }
