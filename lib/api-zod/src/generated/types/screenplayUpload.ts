@@ -8,5 +8,5 @@
 
 export interface ScreenplayUpload {
   /** The multipart file field containing the screenplay PDF or text file. */
-  file: string;
+  file?: string;
 }

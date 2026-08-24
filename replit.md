@@ -26,7 +26,9 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 - `artifacts/callsheet/src/pages/` — project entry and breakdown workspace
 - `artifacts/callsheet/src/components/` — shared Callsheet shell and UI
 - `artifacts/api-server/src/routes/projects.ts` — sample project, upload orchestration, scene breakdown, summaries, and edits
+- `artifacts/api-server/src/lib/privateObjectStorage.ts` — private App Storage upload and download helpers for source screenplays
 - `artifacts/api-server/breakdown_worker.py` — PDF text extraction, slug-line parsing, batched Gemini structured JSON analysis
+- `lib/db/src/schema/callsheet.ts` — persistent project, uploaded-source reference, processing error, and scene records
 - `lib/api-spec/openapi.yaml` — source of truth for project and scene APIs
 
 ## Architecture decisions
@@ -34,6 +36,7 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 - The frontend uses generated API hooks so list, detail, sample-load, project edit, and scene edit all share the OpenAPI contract.
 - The first build ships a deterministic bundled screenplay path alongside a real PDF/text upload path that uses Gemini structured output.
 - PDF parsing is performed with `pdfplumber`; uploaded scenes are grouped into batches of five and processed concurrently before the API returns a ready project.
+- Uploaded screenplay bytes are retained in private App Storage, while projects, scenes, status, and worker errors persist in PostgreSQL; an uploaded project can be re-run without reselecting its file.
 - Scene elements use a category-to-string-array map, matching the industry breakdown vocabulary while allowing future categories.
 
 ## Product

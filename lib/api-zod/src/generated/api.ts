@@ -24,9 +24,10 @@ export const ListProjectsResponseItem = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 })
 export const ListProjectsResponse = zod.array(ListProjectsResponseItem)
@@ -44,9 +45,10 @@ export const CreateProjectResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 })
 
@@ -62,9 +64,10 @@ export const GetProjectResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 }).and(zod.object({
   "scenes": zod.array(zod.object({
@@ -108,9 +111,10 @@ export const UpdateProjectResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 })
 
@@ -126,9 +130,10 @@ export const LoadSampleProjectResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 })
 
@@ -141,16 +146,17 @@ export const ProcessScreenplayParams = zod.object({
 })
 
 export const ProcessScreenplayBody = zod.object({
-  "file": zod.string().describe('The multipart file field containing the screenplay PDF or text file.')
+  "file": zod.string().optional().describe('The multipart file field containing the screenplay PDF or text file.')
 })
 
 export const ProcessScreenplayResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
   "filename": zod.string().nullable(),
-  "status": zod.enum(['draft', 'processing', 'ready']),
+  "status": zod.enum(['draft', 'processing', 'ready', 'failed']),
   "sceneCount": zod.number(),
   "progress": zod.number(),
+  "errorMessage": zod.string().nullable(),
   "updatedAt": zod.string()
 })
 

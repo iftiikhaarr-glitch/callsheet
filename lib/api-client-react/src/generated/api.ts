@@ -223,7 +223,7 @@ export const getCreateProjectUrl = () => {
 /**
  * @summary Create a breakdown project
  */
-export const createProject = async (projectInput: ProjectInput, options?: Parameters<typeof customFetch>[1]): Promise<Project> => {
+export const createProject = async (projectInput?: ProjectInput, options?: Parameters<typeof customFetch>[1]): Promise<Project> => {
 
   return customFetch<Project>(getCreateProjectUrl(),
   {
@@ -239,8 +239,8 @@ export const createProject = async (projectInput: ProjectInput, options?: Parame
 
 
 export const getCreateProjectMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data: BodyType<ProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data: BodyType<ProjectInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data?: BodyType<ProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data?: BodyType<ProjectInput>}, TContext> => {
 
 const mutationKey = ['createProject'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -252,7 +252,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProject>>, {data: BodyType<ProjectInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProject>>, {data?: BodyType<ProjectInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  createProject(data,requestOptions)
@@ -266,18 +266,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CreateProjectMutationResult = NonNullable<Awaited<ReturnType<typeof createProject>>>
-    export type CreateProjectMutationBody = BodyType<ProjectInput>
+    export type CreateProjectMutationBody = BodyType<ProjectInput> | undefined
     export type CreateProjectMutationError = ErrorType<unknown>
 
     /**
  * @summary Create a breakdown project
  */
 export const useCreateProject = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data: BodyType<ProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data?: BodyType<ProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createProject>>,
         TError,
-        {data: BodyType<ProjectInput>},
+        {data?: BodyType<ProjectInput>},
         TContext
       > => {
       return useMutation(getCreateProjectMutationOptions(options));
@@ -517,7 +517,9 @@ export const getProcessScreenplayUrl = (projectId: number,) => {
 export const processScreenplay = async (projectId: number,
     screenplayUpload: ScreenplayUpload, options?: Parameters<typeof customFetch>[1]): Promise<Project> => {
     const formData = new FormData();
-formData.append(`file`, screenplayUpload.file);
+if(screenplayUpload.file !== undefined) {
+ formData.append(`file`, screenplayUpload.file);
+ }
 
   return customFetch<Project>(getProcessScreenplayUrl(projectId),
   {

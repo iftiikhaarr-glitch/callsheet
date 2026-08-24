@@ -13,4 +13,5 @@ export const ProjectStatus = {
   draft: 'draft',
   processing: 'processing',
   ready: 'ready',
+  failed: 'failed',
 } as const;

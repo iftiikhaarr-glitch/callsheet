@@ -45,7 +45,7 @@ paths:
       tags: [projects]
       summary: Create a breakdown project
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -178,21 +178,21 @@ components:
         status: { type: string }
     ScreenplayUpload:
       type: object
-      required: [file]
       properties:
         file:
           type: string
           description: The multipart file field containing the screenplay PDF or text file.
     Project:
       type: object
-      required: [id, title, filename, status, sceneCount, progress, updatedAt]
+      required: [id, title, filename, status, sceneCount, progress, errorMessage, updatedAt]
       properties:
         id: { type: number }
         title: { type: string }
         filename: { type: ["string", "null"] }
-        status: { type: string, enum: [draft, processing, ready] }
+        status: { type: string, enum: [draft, processing, ready, failed] }
         sceneCount: { type: number }
         progress: { type: number }
+        errorMessage: { type: ["string", "null"] }
         updatedAt: { type: string }
     ProjectDetail:
       allOf:

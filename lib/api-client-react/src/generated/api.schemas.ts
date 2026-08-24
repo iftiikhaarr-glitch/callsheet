@@ -22,7 +22,7 @@ export interface ProjectUpdate {
 
 export interface ScreenplayUpload {
   /** The multipart file field containing the screenplay PDF or text file. */
-  file: string;
+  file?: string;
 }
 
 export type ProjectStatus = typeof ProjectStatus[keyof typeof ProjectStatus];
@@ -32,6 +32,7 @@ export const ProjectStatus = {
   draft: 'draft',
   processing: 'processing',
   ready: 'ready',
+  failed: 'failed',
 } as const;
 
 export interface Project {
@@ -42,6 +43,8 @@ export interface Project {
   status: ProjectStatus;
   sceneCount: number;
   progress: number;
+  /** @nullable */
+  errorMessage: string | null;
   updatedAt: string;
 }
 

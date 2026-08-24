@@ -15,8 +15,8 @@ function formatDate(value: string) {
 }
 
 function StatusPill({ status }: { status: Project['status'] }) {
-  const labels = { ready: 'Ready', processing: 'Processing', draft: 'Draft' };
-  return <span data-testid={`status-project-${status}`} className={`inline-flex items-center gap-1.5 px-2 py-1 font-mono-ui text-[10px] font-medium uppercase tracking-wide ${status === 'ready' ? 'bg-[hsl(var(--chart-2)/.12)] text-[hsl(var(--chart-2))]' : status === 'processing' ? 'bg-[hsl(var(--accent)/.18)] text-[hsl(28_68%_35%)]' : 'bg-secondary text-muted-foreground'}`}><span className={`h-1.5 w-1.5 rounded-full ${status === 'ready' ? 'bg-[hsl(var(--chart-2))]' : status === 'processing' ? 'bg-accent' : 'bg-muted-foreground/55'}`} />{labels[status]}</span>;
+  const labels = { ready: 'Ready', processing: 'Processing', draft: 'Draft', failed: 'Failed' };
+  return <span data-testid={`status-project-${status}`} className={`inline-flex items-center gap-1.5 px-2 py-1 font-mono-ui text-[10px] font-medium uppercase tracking-wide ${status === 'ready' ? 'bg-[hsl(var(--chart-2)/.12)] text-[hsl(var(--chart-2))]' : status === 'processing' ? 'bg-[hsl(var(--accent)/.18)] text-[hsl(28_68%_35%)]' : status === 'failed' ? 'bg-[hsl(var(--destructive)/.1)] text-destructive' : 'bg-secondary text-muted-foreground'}`}><span className={`h-1.5 w-1.5 rounded-full ${status === 'ready' ? 'bg-[hsl(var(--chart-2))]' : status === 'processing' ? 'bg-accent' : status === 'failed' ? 'bg-destructive' : 'bg-muted-foreground/55'}`} />{labels[status]}</span>;
 }
 
 export default function Home() {
@@ -56,6 +56,8 @@ export default function Home() {
             setLocation(`/project/${project.id}`);
           } catch (error) {
             setUploadError(error instanceof Error ? error.message : 'Screenplay processing failed.');
+            await queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+            setLocation(`/project/${project.id}`);
           } finally {
             setIsUploading(false);
           }

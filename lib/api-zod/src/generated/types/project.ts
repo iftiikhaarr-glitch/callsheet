@@ -15,5 +15,7 @@ export interface Project {
   status: ProjectStatus;
   sceneCount: number;
   progress: number;
+  /** @nullable */
+  errorMessage: string | null;
   updatedAt: string;
 }

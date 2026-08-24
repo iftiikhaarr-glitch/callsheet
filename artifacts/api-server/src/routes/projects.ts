@@ -6,6 +6,15 @@ import { unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import multer from "multer";
+import { and, asc, desc, eq } from "drizzle-orm";
+import {
+  callsheetProjectsTable,
+  callsheetScenesTable,
+  db,
+  type CallsheetProject,
+  type CallsheetScene,
+} from "@workspace/db";
+import { readPrivateScreenplay, savePrivateScreenplay } from "../lib/privateObjectStorage";
 
 type Elements = Record<string, string[]>;
 type Scene = {
@@ -24,9 +33,10 @@ type Project = {
   id: number;
   title: string;
   filename: string | null;
-  status: "draft" | "processing" | "ready";
+  status: "draft" | "processing" | "ready" | "failed";
   sceneCount: number;
   progress: number;
+  errorMessage: string | null;
   updatedAt: string;
 };
 
@@ -129,23 +139,49 @@ const sampleScenes: Scene[] = [
   },
 ];
 
-const projects: Project[] = [
-  {
-    id: 1,
-    title: "The Last Signal",
-    filename: "the-last-signal.pdf",
-    status: "ready",
-    sceneCount: sampleScenes.length,
-    progress: 100,
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const projectScenes = new Map<number, Scene[]>([[1, sampleScenes]]);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 
-function detail(project: Project) {
-  const scenes = projectScenes.get(project.id) ?? [];
+function asProject(project: CallsheetProject): Project {
+  return {
+    id: project.id,
+    title: project.title,
+    filename: project.filename,
+    status: ["draft", "processing", "ready", "failed"].includes(project.status)
+      ? project.status as Project["status"]
+      : "failed",
+    sceneCount: project.sceneCount,
+    progress: project.progress,
+    errorMessage: project.errorMessage,
+    updatedAt: project.updatedAt.toISOString(),
+  };
+}
+
+function asScene(scene: CallsheetScene): Scene {
+  return {
+    id: scene.id,
+    number: scene.number,
+    intExt: scene.intExt,
+    location: scene.location,
+    timeOfDay: scene.timeOfDay,
+    pageEighths: scene.pageEighths,
+    synopsis: scene.synopsis,
+    rawText: scene.rawText,
+    elements: scene.elements,
+  };
+}
+
+async function findProject(projectId: number) {
+  const [project] = await db.select().from(callsheetProjectsTable).where(eq(callsheetProjectsTable.id, projectId));
+  return project;
+}
+
+async function detail(project: CallsheetProject) {
+  const scenes = (await db
+    .select()
+    .from(callsheetScenesTable)
+    .where(eq(callsheetScenesTable.projectId, project.id))
+    .orderBy(asc(callsheetScenesTable.number)))
+    .map(asScene);
   const roles = new Map<string, number>();
   scenes.forEach((scene) =>
     (scene.elements.cast ?? []).forEach((role) => roles.set(role, (roles.get(role) ?? 0) + 1)),
@@ -154,7 +190,7 @@ function detail(project: Project) {
     .filter((scene) => ["stunts", "visual_effects", "animals", "vehicles"].some((key) => (scene.elements[key] ?? []).length))
     .map((scene) => `Scene ${scene.number} · ${scene.location}`);
   return {
-    ...project,
+    ...asProject(project),
     scenes,
     summary: {
       totalScenes: scenes.length,
@@ -167,7 +203,23 @@ function detail(project: Project) {
   };
 }
 
-async function runGeminiBreakdown(file: Express.Multer.File): Promise<Scene[]> {
+async function replaceScenes(projectId: number, scenes: Scene[]) {
+  await db.delete(callsheetScenesTable).where(eq(callsheetScenesTable.projectId, projectId));
+  if (!scenes.length) return;
+  await db.insert(callsheetScenesTable).values(scenes.map((scene) => ({
+    projectId,
+    number: scene.number,
+    intExt: scene.intExt,
+    location: scene.location,
+    timeOfDay: scene.timeOfDay,
+    pageEighths: scene.pageEighths,
+    synopsis: scene.synopsis,
+    rawText: scene.rawText,
+    elements: scene.elements,
+  })));
+}
+
+async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }): Promise<Scene[]> {
   const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
   const tempPath = path.join(os.tmpdir(), `callsheet-${Date.now()}-${safeName}`);
   const workspaceRoot = path.resolve(process.cwd(), "../..");
@@ -182,7 +234,17 @@ async function runGeminiBreakdown(file: Express.Multer.File): Promise<Scene[]> {
       worker.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
       worker.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
       worker.on("error", reject);
-      worker.on("close", (code: number | null) => code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout || `Gemini worker exited with code ${code}`)));
+      worker.on("close", (code: number | null) => {
+        if (code === 0) return resolve(stdout);
+        const output = stderr || stdout;
+        try {
+          const result = JSON.parse(output) as { error?: string };
+          if (result.error) return reject(new Error(result.error));
+        } catch {
+          // Preserve non-JSON worker output below.
+        }
+        return reject(new Error(output || `Gemini worker exited with code ${code}`));
+      });
     });
     const result = JSON.parse(output) as { scenes?: Scene[]; error?: string };
     if (result.error || !result.scenes?.length) throw new Error(result.error || "Gemini returned no screenplay scenes.");
@@ -194,72 +256,105 @@ async function runGeminiBreakdown(file: Express.Multer.File): Promise<Scene[]> {
 
 const router: IRouter = Router();
 
-router.get("/projects", (_req, res) => res.json(projects));
-router.post("/projects", (req, res) => {
-  const project: Project = {
-    id: projects.length + 1,
+router.get("/projects", async (_req, res) => {
+  const projects = await db.select().from(callsheetProjectsTable).orderBy(desc(callsheetProjectsTable.updatedAt));
+  return res.json(projects.map(asProject));
+});
+router.post("/projects", async (req, res) => {
+  const [project] = await db.insert(callsheetProjectsTable).values({
     title: typeof req.body?.title === "string" ? req.body.title : "Untitled screenplay",
     filename: typeof req.body?.filename === "string" ? req.body.filename : null,
-    status: "draft",
-    sceneCount: 0,
-    progress: 0,
-    updatedAt: new Date().toISOString(),
-  };
-  projects.push(project);
-  res.status(201).json(project);
+  }).returning();
+  return res.status(201).json(asProject(project));
 });
-router.get("/projects/:projectId", (req, res) => {
-  const project = projects.find((item) => item.id === Number(req.params.projectId));
+router.get("/projects/:projectId", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
-  return res.json(detail(project));
+  return res.json(await detail(project));
 });
-router.patch("/projects/:projectId", (req, res) => {
-  const project = projects.find((item) => item.id === Number(req.params.projectId));
+router.patch("/projects/:projectId", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
-  if (typeof req.body?.title === "string") project.title = req.body.title;
-  if (req.body?.status === "draft" || req.body?.status === "processing" || req.body?.status === "ready") project.status = req.body.status;
-  project.updatedAt = new Date().toISOString();
-  return res.json(project);
+  const [updated] = await db.update(callsheetProjectsTable).set({
+    title: typeof req.body?.title === "string" ? req.body.title : project.title,
+  }).where(eq(callsheetProjectsTable.id, project.id)).returning();
+  return res.json(asProject(updated));
 });
-router.post("/projects/:projectId/sample", (req, res) => {
-  const project = projects.find((item) => item.id === Number(req.params.projectId));
+router.post("/projects/:projectId/sample", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
-  project.status = "ready";
-  project.sceneCount = sampleScenes.length;
-  project.progress = 100;
-  project.filename = "the-last-signal-sample.pdf";
-  projectScenes.set(project.id, sampleScenes);
-  return res.status(202).json(project);
+  await replaceScenes(project.id, sampleScenes);
+  const [updated] = await db.update(callsheetProjectsTable).set({
+    status: "ready",
+    sceneCount: sampleScenes.length,
+    progress: 100,
+    filename: "the-last-signal-sample.pdf",
+    errorMessage: null,
+  }).where(eq(callsheetProjectsTable.id, project.id)).returning();
+  return res.status(202).json(asProject(updated));
 });
 router.post("/projects/:projectId/process", upload.single("file"), async (req, res) => {
-  const project = projects.find((item) => item.id === Number(req.params.projectId));
+  const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
-  if (!req.file) return res.status(400).json({ error: "Attach a PDF or text screenplay as file." });
-  project.status = "processing";
-  project.progress = 8;
-  project.filename = req.file.originalname;
+
+  let sourceObjectKey = project.sourceObjectKey;
+  let filename = project.filename;
   try {
-    const scenes = await runGeminiBreakdown(req.file);
-    projectScenes.set(project.id, scenes);
-    project.status = "ready";
-    project.progress = 100;
-    project.sceneCount = scenes.length;
-    project.updatedAt = new Date().toISOString();
-    return res.status(202).json(project);
+    if (req.file) {
+      sourceObjectKey = await savePrivateScreenplay(req.file);
+      filename = req.file.originalname;
+    }
+    if (!sourceObjectKey || !filename) {
+      return res.status(400).json({ error: "Attach a PDF or text screenplay as file before starting a breakdown." });
+    }
+
+    await db.update(callsheetProjectsTable).set({
+      sourceObjectKey,
+      filename,
+      status: "processing",
+      progress: 8,
+      errorMessage: null,
+    }).where(eq(callsheetProjectsTable.id, project.id));
+
+    const buffer = req.file?.buffer ?? await readPrivateScreenplay(sourceObjectKey);
+    const scenes = await runGeminiBreakdown({ buffer, originalname: filename });
+    await replaceScenes(project.id, scenes);
+    const [updated] = await db.update(callsheetProjectsTable).set({
+      status: "ready",
+      progress: 100,
+      sceneCount: scenes.length,
+      errorMessage: null,
+    }).where(eq(callsheetProjectsTable.id, project.id)).returning();
+    return res.status(202).json(asProject(updated));
   } catch (error) {
-    project.status = "draft";
-    project.progress = 0;
+    const message = error instanceof Error ? error.message : "Gemini screenplay breakdown failed.";
+    await db.update(callsheetProjectsTable).set({
+      sourceObjectKey,
+      filename,
+      status: "failed",
+      progress: 0,
+      sceneCount: 0,
+      errorMessage: message,
+    }).where(eq(callsheetProjectsTable.id, project.id));
     req.log.error({ err: error }, "Gemini screenplay breakdown failed");
-    return res.status(502).json({ error: error instanceof Error ? error.message : "Gemini screenplay breakdown failed." });
+    return res.status(502).json({ error: message });
   }
 });
-router.patch("/projects/:projectId/scenes/:sceneId", (req, res) => {
-  const scenes = projectScenes.get(Number(req.params.projectId)) ?? [];
-  const scene = scenes.find((item) => item.id === Number(req.params.sceneId));
+router.patch("/projects/:projectId/scenes/:sceneId", async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const sceneId = Number(req.params.sceneId);
+  const [scene] = await db.select().from(callsheetScenesTable).where(and(
+    eq(callsheetScenesTable.projectId, projectId),
+    eq(callsheetScenesTable.id, sceneId),
+  ));
   if (!scene) return res.status(404).json({ error: "Scene not found" });
-  if (typeof req.body?.synopsis === "string") scene.synopsis = req.body.synopsis;
-  if (req.body?.elements && typeof req.body.elements === "object") scene.elements = { ...scene.elements, ...req.body.elements };
-  return res.json(scene);
+  const [updated] = await db.update(callsheetScenesTable).set({
+    synopsis: typeof req.body?.synopsis === "string" ? req.body.synopsis : scene.synopsis,
+    elements: req.body?.elements && typeof req.body.elements === "object"
+      ? { ...scene.elements, ...req.body.elements }
+      : scene.elements,
+  }).where(eq(callsheetScenesTable.id, scene.id)).returning();
+  return res.json(asScene(updated));
 });
 
 export default router;

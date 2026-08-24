@@ -39,8 +39,17 @@ export default function Workspace() {
   const [saved, setSaved] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [isReprocessing, setIsReprocessing] = useState(false);
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
 
   const scenes = project?.scenes || [];
+
+  useEffect(() => {
+    if (project?.status !== 'processing') return;
+    const interval = window.setInterval(() => { void refetch(); }, 1500);
+    return () => window.clearInterval(interval);
+  }, [project?.status, refetch]);
+
   const locations = useMemo(() => Array.from(new Set(scenes.map((scene) => scene.location))).sort(), [scenes]);
   const filteredScenes = useMemo(() => scenes.filter((scene) => {
     const needle = search.trim().toLowerCase();
@@ -99,6 +108,23 @@ export default function Workspace() {
     updateProject.mutate({ projectId, data: { title: titleDraft.trim() } }, { onSuccess: (updated) => { queryClient.setQueryData(getGetProjectQueryKey(projectId), (current: typeof project | undefined) => current ? { ...current, title: updated.title } : current); setRenaming(false); } });
   };
 
+  const reprocessSavedScreenplay = async () => {
+    if (!project) return;
+    setIsReprocessing(true);
+    setReprocessError(null);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/process`, { method: 'POST' });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || 'Saved screenplay processing failed.');
+      await queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(projectId) });
+      await refetch();
+    } catch (error) {
+      setReprocessError(error instanceof Error ? error.message : 'Saved screenplay processing failed.');
+    } finally {
+      setIsReprocessing(false);
+    }
+  };
+
   return (
     <AppShell projectTitle={project?.title}>
       <main className="min-h-[calc(100dvh-58px)] bg-background md:min-h-[100dvh]">
@@ -116,7 +142,7 @@ export default function Workspace() {
               </div>
               <div className="flex items-center gap-3">
                 <div className="w-32"><div className="mb-2 flex justify-between font-mono-ui text-[9px] uppercase text-muted-foreground"><span>Breakdown</span><span>{project?.progress || 0}%</span></div><div className="h-1 bg-secondary"><div className="h-1 bg-accent transition-all duration-500" style={{ width: pct(project?.progress || 0) }} /></div></div>
-                <span data-testid="status-workspace" className={`border px-2 py-1 font-mono-ui text-[9px] uppercase tracking-wider ${project?.status === 'ready' ? 'border-[hsl(var(--chart-2)/.3)] text-[hsl(var(--chart-2))]' : 'border-accent/50 text-[hsl(28_68%_35%)]'}`}>{project?.status || 'loading'}</span>
+                <span data-testid="status-workspace" className={`border px-2 py-1 font-mono-ui text-[9px] uppercase tracking-wider ${project?.status === 'ready' ? 'border-[hsl(var(--chart-2)/.3)] text-[hsl(var(--chart-2))]' : project?.status === 'failed' ? 'border-[hsl(var(--destructive)/.4)] text-destructive' : 'border-accent/50 text-[hsl(28_68%_35%)]'}`}>{project?.status || 'loading'}</span>
               </div>
             </div>
             {isLoading ? <div className="h-16 animate-pulse bg-secondary" /> : project && <div className="border-t border-border pt-5">
@@ -160,6 +186,7 @@ export default function Workspace() {
               </section>
               <SceneDetail scene={selectedScene} draftSynopsis={draftSynopsis} setDraftSynopsis={setDraftSynopsis} draftElements={draftElements} newElement={newElement} setNewElement={setNewElement} addElement={addElement} removeElement={removeElement} saveScene={saveScene} showRaw={showRaw} setShowRaw={setShowRaw} isSaving={updateScene.isPending} saveError={updateScene.isError} saved={saved} />
             </div>
+            {project.status === 'failed' && <div className="border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] px-4 py-4" data-testid="error-breakdown-worker"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-xs font-bold text-destructive"><AlertTriangle size={14} /> Screenplay processing failed</p><p className="mt-2 break-words font-mono-ui text-[11px] leading-5 text-muted-foreground">{reprocessError || project.errorMessage || 'No worker error was recorded.'}</p></div>{project.filename && <button onClick={reprocessSavedScreenplay} disabled={isReprocessing} data-testid="button-reprocess-screenplay" className="inline-flex shrink-0 items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-50"><RefreshCw size={13} className={isReprocessing ? 'animate-spin' : ''} />{isReprocessing ? 'Re-running…' : 'Re-run saved screenplay'}</button>}</div></div>}
           </div>
         )}
       </main>
