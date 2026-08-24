@@ -27,7 +27,8 @@ import type {
   ProjectUpdate,
   Scene,
   SceneUpdate,
-  ScreenplayUpload
+  ScreenplayUpload,
+  ShootingSchedule
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -648,6 +649,77 @@ export const useProcessScreenplay = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getProcessScreenplayMutationOptions(options));
+    }
+
+export const getGenerateShootingScheduleUrl = (projectId: number,) => {
+
+
+
+
+  return `/api/projects/${projectId}/schedule`
+}
+
+/**
+ * @summary Generate or retrieve a persisted shooting schedule
+ */
+export const generateShootingSchedule = async (projectId: number, options?: Parameters<typeof customFetch>[1]): Promise<ShootingSchedule> => {
+
+  return customFetch<ShootingSchedule>(getGenerateShootingScheduleUrl(projectId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getGenerateShootingScheduleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateShootingSchedule>>, TError,{projectId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateShootingSchedule>>, TError,{projectId: number}, TContext> => {
+
+const mutationKey = ['generateShootingSchedule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateShootingSchedule>>, {projectId: number}> = (props) => {
+          const {projectId} = props ?? {};
+
+          return  generateShootingSchedule(projectId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateShootingScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof generateShootingSchedule>>>
+
+    export type GenerateShootingScheduleMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate or retrieve a persisted shooting schedule
+ */
+export const useGenerateShootingSchedule = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateShootingSchedule>>, TError,{projectId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateShootingSchedule>>,
+        TError,
+        {projectId: number},
+        TContext
+      > => {
+      return useMutation(getGenerateShootingScheduleMutationOptions(options));
     }
 
 export const getUpdateSceneUrl = (projectId: number,

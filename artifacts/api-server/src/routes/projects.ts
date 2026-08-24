@@ -15,6 +15,7 @@ import {
   type CallsheetScene,
 } from "@workspace/db";
 import { readPrivateScreenplay, savePrivateScreenplay } from "../lib/privateObjectStorage";
+import { buildShootingSchedule, type ShootingSchedule } from "../lib/scheduling";
 
 type Elements = Record<string, string[]>;
 type Scene = {
@@ -140,6 +141,7 @@ const sampleScenes: Scene[] = [
 ];
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
+const pendingScheduleGenerations = new Map<number, Promise<ShootingSchedule>>();
 
 function asProject(project: CallsheetProject): Project {
   return {
@@ -217,6 +219,7 @@ async function replaceScenes(projectId: number, scenes: Scene[]) {
     rawText: scene.rawText,
     elements: scene.elements,
   })));
+  await db.update(callsheetProjectsTable).set({ schedule: null, scheduleError: null }).where(eq(callsheetProjectsTable.id, projectId));
 }
 
 async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }): Promise<Scene[]> {
@@ -252,6 +255,69 @@ async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }
   } finally {
     await unlink(tempPath).catch(() => undefined);
   }
+}
+
+async function runGeminiScheduleRationale(schedule: Omit<ShootingSchedule, "rationale">) {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
+  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const tempPath = path.join(os.tmpdir(), `callsheet-schedule-${Date.now()}.json`);
+  await writeFile(tempPath, JSON.stringify(schedule));
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      const worker: ChildProcessWithoutNullStreams = spawn(pythonPath, [workerPath, "--schedule-rationale", tempPath], { env: process.env });
+      let stdout = "";
+      let stderr = "";
+      worker.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      worker.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      worker.on("error", reject);
+      worker.on("close", (code: number | null) => {
+        if (code === 0) return resolve(stdout);
+        try {
+          const result = JSON.parse(stderr || stdout) as { error?: string };
+          if (result.error) return reject(new Error(result.error));
+        } catch {
+          // Preserve raw worker output below.
+        }
+        return reject(new Error(stderr || stdout || `Gemini rationale worker exited with code ${code}`));
+      });
+    });
+    const result = JSON.parse(output) as { rationale?: string; error?: string };
+    if (result.error || !result.rationale) throw new Error(result.error || "Gemini returned no schedule rationale.");
+    return result.rationale;
+  } finally {
+    await unlink(tempPath).catch(() => undefined);
+  }
+}
+
+async function createScheduleFromLatestScenes(projectId: number): Promise<ShootingSchedule> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const project = await findProject(projectId);
+    if (!project) throw new Error("Project not found");
+    if (project.schedule) return project.schedule as ShootingSchedule;
+
+    const sourceUpdatedAt = project.updatedAt;
+    const scenes = (await db
+      .select()
+      .from(callsheetScenesTable)
+      .where(eq(callsheetScenesTable.projectId, project.id))
+      .orderBy(asc(callsheetScenesTable.number)))
+      .map(asScene);
+    if (!scenes.length) throw new Error("Add screenplay scenes before generating a shooting schedule.");
+
+    const baseSchedule = buildShootingSchedule(scenes);
+    const rationale = await runGeminiScheduleRationale(baseSchedule);
+    const schedule: ShootingSchedule = { ...baseSchedule, rationale };
+    const [saved] = await db.update(callsheetProjectsTable).set({
+      schedule,
+      scheduleError: null,
+    }).where(and(
+      eq(callsheetProjectsTable.id, project.id),
+      eq(callsheetProjectsTable.updatedAt, sourceUpdatedAt),
+    )).returning({ id: callsheetProjectsTable.id });
+    if (saved) return schedule;
+  }
+  throw new Error("The breakdown changed while the schedule was generating. Please try again.");
 }
 
 const router: IRouter = Router();
@@ -347,6 +413,35 @@ router.post("/projects/:projectId/process", upload.single("file"), async (req, r
     return res.status(502).json({ error: message });
   }
 });
+router.post("/projects/:projectId/schedule", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  if (project.schedule) return res.status(201).json(project.schedule as ShootingSchedule);
+
+  const pending = pendingScheduleGenerations.get(project.id);
+  if (pending) {
+    try {
+      return res.status(201).json(await pending);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Shooting schedule generation failed.";
+      return res.status(502).json({ error: message });
+    }
+  }
+
+  const generation = createScheduleFromLatestScenes(project.id);
+  pendingScheduleGenerations.set(project.id, generation);
+  try {
+    const schedule = await generation;
+    return res.status(201).json(schedule);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Shooting schedule generation failed.";
+    await db.update(callsheetProjectsTable).set({ scheduleError: message }).where(eq(callsheetProjectsTable.id, project.id));
+    req.log.error({ err: error }, "Shooting schedule generation failed");
+    return res.status(502).json({ error: message });
+  } finally {
+    pendingScheduleGenerations.delete(project.id);
+  }
+});
 router.patch("/projects/:projectId/scenes/:sceneId", async (req, res) => {
   const projectId = Number(req.params.projectId);
   const sceneId = Number(req.params.sceneId);
@@ -361,6 +456,7 @@ router.patch("/projects/:projectId/scenes/:sceneId", async (req, res) => {
       ? { ...scene.elements, ...req.body.elements }
       : scene.elements,
   }).where(eq(callsheetScenesTable.id, scene.id)).returning();
+  await db.update(callsheetProjectsTable).set({ schedule: null, scheduleError: null }).where(eq(callsheetProjectsTable.id, projectId));
   return res.json(asScene(updated));
 });
 

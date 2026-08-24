@@ -88,3 +88,48 @@ export interface SceneUpdate {
   elements?: SceneUpdateElements;
 }
 
+export interface ScheduleScene {
+  id: number;
+  number: number;
+  intExt: string;
+  timeOfDay: string;
+  pageEighths: number;
+  synopsis: string;
+}
+
+export interface ScheduleDay {
+  dayNumber: number;
+  weekday: string;
+  location: string;
+  intExt: string;
+  timeOfDay: string;
+  pageEighths: number;
+  cast: string[];
+  scenes: ScheduleScene[];
+}
+
+export type DayOutOfDaysRowStatusesItem = typeof DayOutOfDaysRowStatusesItem[keyof typeof DayOutOfDaysRowStatusesItem];
+
+
+export const DayOutOfDaysRowStatusesItem = {
+  Work: 'Work',
+  Hold: 'Hold',
+  Travel: 'Travel',
+  Off: 'Off',
+} as const;
+
+export interface DayOutOfDaysRow {
+  castMember: string;
+  statuses: DayOutOfDaysRowStatusesItem[];
+}
+
+export interface ShootingSchedule {
+  targetEighths: number;
+  totalDays: number;
+  scriptOrderDays: number;
+  daysSaved: number;
+  rationale: string;
+  days: ScheduleDay[];
+  dayOutOfDays: DayOutOfDaysRow[];
+}
+

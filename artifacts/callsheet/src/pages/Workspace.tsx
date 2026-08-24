@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronRight, FileWarning, Layers3, MapPin, PanelLeft, RefreshCw, Save, Search, Tag, Users } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, FileWarning, Layers3, MapPin, PanelLeft, RefreshCw, Save, Search, Tag, Users, Calendar, TrendingDown, Clock, ArrowRight, ClipboardList } from 'lucide-react';
 import { Link, useParams } from 'wouter';
-import { getGetProjectQueryKey, useGetProject, useUpdateProject, useUpdateScene } from '@workspace/api-client-react';
-import type { Scene } from '@workspace/api-client-react';
+import { getGetProjectQueryKey, useGetProject, useUpdateProject, useUpdateScene, useGenerateShootingSchedule } from '@workspace/api-client-react';
+import type { Scene, ShootingSchedule } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '@/components/AppShell';
 
@@ -28,6 +28,12 @@ export default function Workspace() {
   const { data: project, isLoading, isError, refetch } = useGetProject(projectId, { query: { queryKey: getGetProjectQueryKey(projectId), enabled: Number.isFinite(projectId) } });
   const updateProject = useUpdateProject();
   const updateScene = useUpdateScene();
+  const generateSchedule = useGenerateShootingSchedule();
+  
+  const [activeTab, setActiveTab] = useState<'breakdown' | 'schedule'>('breakdown');
+  const [schedule, setSchedule] = useState<ShootingSchedule | null>(null);
+  const hasRequestedSchedule = useRef(false);
+  
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
@@ -50,6 +56,16 @@ export default function Workspace() {
     return () => window.clearInterval(interval);
   }, [project?.status, refetch]);
 
+  useEffect(() => {
+    if (activeTab === 'schedule' && !schedule && !hasRequestedSchedule.current) {
+      hasRequestedSchedule.current = true;
+      generateSchedule.mutate({ projectId }, {
+        onSuccess: (data) => setSchedule(data),
+        onError: () => { hasRequestedSchedule.current = false; }
+      });
+    }
+  }, [activeTab, schedule, projectId]); // intentionally omitting generateSchedule from deps to prevent loop
+
   const locations = useMemo(() => Array.from(new Set(scenes.map((scene) => scene.location))).sort(), [scenes]);
   const filteredScenes = useMemo(() => scenes.filter((scene) => {
     const needle = search.trim().toLowerCase();
@@ -68,13 +84,15 @@ export default function Workspace() {
       setShowRaw(false);
       setSaved(false);
     }
-  }, [selectedScene?.id]); // initialize only when the selected record changes
+  }, [selectedScene?.id]);
 
   const saveScene = () => {
     if (!selectedScene) return;
     updateScene.mutate({ projectId, sceneId: selectedScene.id, data: { synopsis: draftSynopsis, elements: draftElements } }, {
       onSuccess: () => {
         setSaved(true);
+        setSchedule(null);
+        hasRequestedSchedule.current = false;
         window.setTimeout(() => setSaved(false), 2200);
       },
     });
@@ -116,6 +134,8 @@ export default function Workspace() {
       const response = await fetch(`/api/projects/${projectId}/process`, { method: 'POST' });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || 'Saved screenplay processing failed.');
+      setSchedule(null);
+      hasRequestedSchedule.current = false;
       await queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(projectId) });
       await refetch();
     } catch (error) {
@@ -132,7 +152,7 @@ export default function Workspace() {
           <div className="mx-auto flex max-w-[1600px] flex-col gap-5 px-5 py-6 md:px-10 md:py-8">
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 font-mono-ui text-[10px] text-muted-foreground"><Link href="/" className="hover:text-foreground" data-testid="link-back-projects">Projects</Link><ChevronRight size={12} /><span className="text-[hsl(var(--chart-2))]">Breakdown</span></div>
+                <div className="flex items-center gap-2 font-mono-ui text-[10px] text-muted-foreground"><Link href="/" className="hover:text-foreground" data-testid="link-back-projects">Projects</Link><ChevronRight size={12} /><span className="text-[hsl(var(--chart-2))]">Workspace</span></div>
                 <div className="mt-3 flex items-center gap-3">
                   {renaming ? <input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && saveTitle()} autoFocus data-testid="input-edit-project-title" className="w-full max-w-md border-b-2 border-accent bg-transparent font-display text-3xl font-bold outline-none md:text-4xl" /> : <h1 data-testid="text-project-title" className="truncate font-display text-3xl font-bold tracking-[-0.04em] md:text-4xl">{project?.title || 'Loading breakdown'}</h1>}
                   {project && !renaming && <button onClick={startRename} data-testid="button-rename-project" className="shrink-0 border-b border-transparent font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground hover:border-accent hover:text-foreground">Rename</button>}
@@ -155,12 +175,20 @@ export default function Workspace() {
               {project.summary.flagged.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border pt-4" data-testid="summary-flagged"><span className="flex items-center gap-1.5 font-mono-ui text-[9px] font-medium uppercase tracking-wider text-[hsl(var(--destructive))]"><AlertTriangle size={12} /> Needs review</span>{project.summary.flagged.map((item, index) => <span key={`${item}-${index}`} className="border border-[hsl(var(--destructive)/.2)] bg-[hsl(var(--destructive)/.06)] px-2 py-1 text-[10px] text-muted-foreground">{item}</span>)}</div>}
             </div>}
           </div>
+          
+          {!isLoading && project && !isError && (
+            <div className="mx-auto flex w-full max-w-[1600px] gap-6 px-5 md:px-10">
+              <button onClick={() => setActiveTab('breakdown')} data-testid="tab-breakdown" className={`pb-3 pt-1 font-mono-ui text-[11px] font-bold uppercase tracking-wider transition-colors ${activeTab === 'breakdown' ? 'border-b-2 border-accent text-foreground' : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}>Breakdown</button>
+              <button onClick={() => setActiveTab('schedule')} data-testid="tab-schedule" className={`pb-3 pt-1 flex items-center gap-2 font-mono-ui text-[11px] font-bold uppercase tracking-wider transition-colors ${activeTab === 'schedule' ? 'border-b-2 border-accent text-foreground' : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}><ClipboardList size={13} className={activeTab === 'schedule' ? 'text-accent' : ''} /> Shooting Schedule</button>
+            </div>
+          )}
         </div>
 
         {isLoading && <div className="mx-auto max-w-[1600px] px-5 py-7 md:px-10"><SceneSkeleton /></div>}
-        {isError && <div className="mx-auto max-w-[1600px] px-5 py-12 md:px-10"><div className="border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] p-7" data-testid="error-project-detail"><div className="flex items-center gap-3"><AlertTriangle size={19} className="text-destructive" /><h2 className="font-display text-lg font-bold">This breakdown is unavailable.</h2></div><p className="mt-2 text-sm text-muted-foreground">The project may still be processing or the request failed.</p><button onClick={() => refetch()} data-testid="button-retry-project-detail" className="mt-5 inline-flex items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary"><RefreshCw size={13} /> Retry request</button></div></div>}
-        {!isLoading && !isError && project && (
-          <div className="mx-auto max-w-[1600px] px-5 py-6 md:px-10 md:py-8">
+        {isError && <div className="mx-auto max-w-[1600px] px-5 py-12 md:px-10"><div className="border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] p-7" data-testid="error-project-detail"><div className="flex items-center gap-3"><AlertTriangle size={19} className="text-destructive" /><h2 className="font-display text-lg font-bold">This workspace is unavailable.</h2></div><p className="mt-2 text-sm text-muted-foreground">The project may still be processing or the request failed.</p><button onClick={() => refetch()} data-testid="button-retry-project-detail" className="mt-5 inline-flex items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary"><RefreshCw size={13} /> Retry request</button></div></div>}
+        
+        {!isLoading && !isError && project && activeTab === 'breakdown' && (
+          <div className="mx-auto max-w-[1600px] px-5 py-6 md:px-10 md:py-8 animate-rise-in">
             <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <div><p className="tracking-caps font-mono-ui text-[10px] font-medium text-muted-foreground">Scene index <span className="text-foreground">/ {filteredScenes.length} shown</span></p><p className="mt-1 text-xs text-muted-foreground">Select a scene to inspect and correct the AI breakdown.</p></div>
               <div className="flex flex-wrap items-center gap-2">
@@ -186,7 +214,25 @@ export default function Workspace() {
               </section>
               <SceneDetail scene={selectedScene} draftSynopsis={draftSynopsis} setDraftSynopsis={setDraftSynopsis} draftElements={draftElements} newElement={newElement} setNewElement={setNewElement} addElement={addElement} removeElement={removeElement} saveScene={saveScene} showRaw={showRaw} setShowRaw={setShowRaw} isSaving={updateScene.isPending} saveError={updateScene.isError} saved={saved} />
             </div>
-            {project.status === 'failed' && <div className="border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] px-4 py-4" data-testid="error-breakdown-worker"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-xs font-bold text-destructive"><AlertTriangle size={14} /> Screenplay processing failed</p><p className="mt-2 break-words font-mono-ui text-[11px] leading-5 text-muted-foreground">{reprocessError || project.errorMessage || 'No worker error was recorded.'}</p></div>{project.filename && <button onClick={reprocessSavedScreenplay} disabled={isReprocessing} data-testid="button-reprocess-screenplay" className="inline-flex shrink-0 items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-50"><RefreshCw size={13} className={isReprocessing ? 'animate-spin' : ''} />{isReprocessing ? 'Re-running…' : 'Re-run saved screenplay'}</button>}</div></div>}
+            {project.status === 'failed' && <div className="mt-6 border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] px-4 py-4" data-testid="error-breakdown-worker"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-xs font-bold text-destructive"><AlertTriangle size={14} /> Screenplay processing failed</p><p className="mt-2 break-words font-mono-ui text-[11px] leading-5 text-muted-foreground">{reprocessError || project.errorMessage || 'No worker error was recorded.'}</p></div>{project.filename && <button onClick={reprocessSavedScreenplay} disabled={isReprocessing} data-testid="button-reprocess-screenplay" className="inline-flex shrink-0 items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-50"><RefreshCw size={13} className={isReprocessing ? 'animate-spin' : ''} />{isReprocessing ? 'Re-running…' : 'Re-run saved screenplay'}</button>}</div></div>}
+          </div>
+        )}
+
+        {!isLoading && !isError && project && activeTab === 'schedule' && (
+          <div className="mx-auto max-w-[1600px] px-5 py-6 md:px-10 md:py-8 animate-rise-in">
+            <ScheduleTab 
+              schedule={schedule} 
+              isPending={generateSchedule.isPending} 
+              isError={generateSchedule.isError} 
+               errorMessage={generateSchedule.error instanceof Error ? generateSchedule.error.message : undefined}
+              onRetry={() => { 
+                hasRequestedSchedule.current = true; 
+                generateSchedule.mutate({ projectId }, { 
+                  onSuccess: (data) => setSchedule(data), 
+                  onError: () => { hasRequestedSchedule.current = false; } 
+                }); 
+              }} 
+            />
           </div>
         )}
       </main>
@@ -208,4 +254,146 @@ function SceneDetail({ scene, draftSynopsis, setDraftSynopsis, draftElements, ne
       <div className="mt-6 flex items-center justify-between gap-3"><span className="text-[10px] text-muted-foreground">{saved ? <span className="flex items-center gap-1.5 text-[hsl(var(--chart-2))]"><Check size={13} /> Saved to breakdown</span> : saveError ? <span className="text-destructive">Save failed. Try again.</span> : 'Changes are saved to this scene.'}</span><button onClick={saveScene} disabled={isSaving} data-testid={`button-save-scene-${scene.id}`} className="inline-flex items-center gap-2 bg-primary px-3.5 py-2.5 text-xs font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-50">{isSaving ? 'Saving…' : <><Save size={13} /> Save scene</>}</button></div>
     </div>
   </aside>;
+}
+
+function ScheduleTab({ schedule, isPending, isError, errorMessage, onRetry }: { schedule: ShootingSchedule | null, isPending: boolean, isError: boolean, errorMessage?: string, onRetry: () => void }) {
+  if (isError && !schedule) {
+    return (
+      <div className="border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.06)] p-7" data-testid="error-schedule">
+        <div className="flex items-center gap-3">
+          <AlertTriangle size={19} className="text-destructive" />
+          <h2 className="font-display text-lg font-bold">Failed to generate schedule.</h2>
+        </div>
+        <p className="mt-2 break-words text-sm text-muted-foreground">{errorMessage || 'The AI scheduling agent encountered an error.'}</p>
+        <button onClick={onRetry} className="mt-5 inline-flex items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary">
+          <RefreshCw size={13} /> Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (isPending && !schedule) {
+    return (
+      <div className="space-y-8 animate-pulse" data-testid="loading-schedule">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-[74px] border border-border bg-card" />)}
+        </div>
+        <div className="h-28 border border-border bg-card" />
+        <div className="grid grid-cols-1 gap-10 xl:grid-cols-[1fr_minmax(400px,.6fr)]">
+          <div className="space-y-6">{[1, 2].map(i => <div key={i} className="h-64 border border-border bg-card" />)}</div>
+          <div className="h-96 border border-border bg-card" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!schedule) return null;
+
+  return (
+    <div data-testid="schedule-view">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <Stat label="Total Days" value={schedule.totalDays} icon={<Calendar size={12} />} accent />
+        <Stat label="Target Pace" value={`${schedule.targetEighths}/8`} icon={<Clock size={12} />} />
+        <Stat label="Days Saved" value={schedule.daysSaved} icon={<TrendingDown size={12} />} />
+        <Stat label="Linear Days" value={schedule.scriptOrderDays} icon={<ArrowRight size={12} />} />
+      </div>
+
+      <div className="mb-10 border-l-2 border-accent bg-[hsl(var(--accent)/.09)] p-5">
+        <h3 className="mb-2 font-mono-ui text-[10px] font-bold uppercase tracking-wider text-[hsl(28_68%_35%)] dark:text-accent">Scheduling Strategy</h3>
+        <p className="max-w-5xl font-display text-[13px] leading-relaxed md:text-sm">{schedule.rationale}</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-10 xl:grid-cols-[1fr_minmax(400px,.6fr)]">
+        <div>
+          <h2 className="mb-5 font-display text-xl font-bold tracking-tight">Shooting Days</h2>
+          <div className="space-y-6">
+            {schedule.days.map(day => (
+              <div key={day.dayNumber} className="border border-border bg-card shadow-sm" data-testid={`schedule-day-${day.dayNumber}`}>
+                <div className="flex flex-wrap items-center justify-between border-b border-border bg-secondary/35 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="bg-foreground px-2 py-1 font-mono-ui text-[10px] font-bold uppercase text-background">Day {day.dayNumber}</span>
+                    <span className="font-mono-ui text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{day.weekday}</span>
+                  </div>
+                  <span className="font-mono-ui text-[10px] uppercase text-muted-foreground">{day.pageEighths}/8 pgs</span>
+                </div>
+                
+                <div className="border-b border-border px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                    <strong className="font-bold">{day.location}</strong>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="font-mono-ui text-[11px]">{day.intExt}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="font-mono-ui text-[11px]">{day.timeOfDay}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="font-mono-ui text-[10px] uppercase text-muted-foreground">{day.cast.length} cast</span>
+                  </div>
+                  {day.cast.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {day.cast.map(c => <span key={c} className="border border-border bg-background px-1.5 py-0.5 font-mono-ui text-[9px] uppercase text-muted-foreground">{c}</span>)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="divide-y divide-border bg-background">
+                  <div className="grid grid-cols-[36px_1fr_36px] gap-3 bg-secondary/20 px-4 py-2 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">
+                    <span>Sc</span>
+                    <span>Synopsis</span>
+                    <span className="text-right">Pgs</span>
+                  </div>
+                  {day.scenes.map(scene => (
+                    <div key={scene.id} className="grid grid-cols-[36px_1fr_36px] items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-secondary/40">
+                      <span className="font-mono-ui font-medium text-muted-foreground">{String(scene.number).padStart(2, '0')}</span>
+                      <span className="truncate">{scene.synopsis}</span>
+                      <span className="text-right font-mono-ui text-[10px] text-muted-foreground">{scene.pageEighths}/8</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="sticky top-6">
+            <h2 className="mb-5 font-display text-xl font-bold tracking-tight">Day Out of Days</h2>
+            <div className="overflow-x-auto border border-border bg-card shadow-sm" data-testid="dood-table">
+              <table className="w-full text-left font-mono-ui text-[10px]">
+                <thead className="bg-secondary/50 uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2.5 font-medium">Cast</th>
+                    {schedule.days.map(d => (
+                      <th key={d.dayNumber} className="min-w-[28px] border-l border-border px-1.5 py-2.5 text-center font-medium">D{d.dayNumber}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {schedule.dayOutOfDays.map(row => (
+                    <tr key={row.castMember} className="transition-colors hover:bg-secondary/30">
+                      <td className="whitespace-nowrap px-3 py-2 font-medium">{row.castMember}</td>
+                      {row.statuses.map((status, i) => {
+                        const letter = status === 'Work' ? 'W' : status === 'Hold' ? 'H' : status === 'Travel' ? 'T' : 'O';
+                        const color = status === 'Work' ? 'text-foreground' : status === 'Hold' ? 'text-accent' : status === 'Travel' ? 'text-[hsl(var(--chart-2))]' : 'text-muted-foreground';
+                        const bg = status === 'Work' ? 'bg-[hsl(var(--border)/.2)]' : '';
+                        return (
+                          <td key={i} className={`border-l border-border px-1.5 py-2 text-center font-bold ${color} ${bg}`}>
+                            {letter}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 flex gap-4 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="font-bold text-foreground">W</span> Work</span>
+              <span className="flex items-center gap-1.5"><span className="font-bold text-accent">H</span> Hold</span>
+              <span className="flex items-center gap-1.5"><span className="font-bold text-[hsl(var(--chart-2))]">T</span> Travel</span>
+              <span className="flex items-center gap-1.5"><span className="font-bold text-muted-foreground">O</span> Off</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

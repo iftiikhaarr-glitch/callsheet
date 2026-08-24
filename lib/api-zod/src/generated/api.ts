@@ -172,6 +172,43 @@ export const ProcessScreenplayResponse = zod.object({
 
 
 /**
+ * @summary Generate or retrieve a persisted shooting schedule
+ */
+export const GenerateShootingScheduleParams = zod.object({
+  "projectId": zod.coerce.number()
+})
+
+export const GenerateShootingScheduleResponse = zod.object({
+  "targetEighths": zod.number(),
+  "totalDays": zod.number(),
+  "scriptOrderDays": zod.number(),
+  "daysSaved": zod.number(),
+  "rationale": zod.string(),
+  "days": zod.array(zod.object({
+  "dayNumber": zod.number(),
+  "weekday": zod.string(),
+  "location": zod.string(),
+  "intExt": zod.string(),
+  "timeOfDay": zod.string(),
+  "pageEighths": zod.number(),
+  "cast": zod.array(zod.string()),
+  "scenes": zod.array(zod.object({
+  "id": zod.number(),
+  "number": zod.number(),
+  "intExt": zod.string(),
+  "timeOfDay": zod.string(),
+  "pageEighths": zod.number(),
+  "synopsis": zod.string()
+}))
+})),
+  "dayOutOfDays": zod.array(zod.object({
+  "castMember": zod.string(),
+  "statuses": zod.array(zod.enum(['Work', 'Hold', 'Travel', 'Off']))
+}))
+})
+
+
+/**
  * @summary Update a scene or its tags
  */
 export const UpdateSceneParams = zod.object({

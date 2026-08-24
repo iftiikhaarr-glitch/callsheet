@@ -135,6 +135,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
+  /projects/{projectId}/schedule:
+    post:
+      operationId: generateShootingSchedule
+      tags: [projects]
+      summary: Generate or retrieve a persisted shooting schedule
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "201":
+          description: Shooting schedule generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShootingSchedule"
+        "400":
+          description: Project has no scenes to schedule
+        "404":
+          description: Project not found
+        "502":
+          description: Schedule rationale generation failed
   /projects/{projectId}/scenes/{sceneId}:
     patch:
       operationId: updateScene
@@ -261,4 +281,55 @@ components:
           additionalProperties:
             type: array
             items: { type: string }
+    ShootingSchedule:
+      type: object
+      required: [targetEighths, totalDays, scriptOrderDays, daysSaved, rationale, days, dayOutOfDays]
+      properties:
+        targetEighths: { type: number }
+        totalDays: { type: number }
+        scriptOrderDays: { type: number }
+        daysSaved: { type: number }
+        rationale: { type: string }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleDay" }
+        dayOutOfDays:
+          type: array
+          items: { $ref: "#/components/schemas/DayOutOfDaysRow" }
+    ScheduleDay:
+      type: object
+      required: [dayNumber, weekday, location, intExt, timeOfDay, pageEighths, cast, scenes]
+      properties:
+        dayNumber: { type: number }
+        weekday: { type: string }
+        location: { type: string }
+        intExt: { type: string }
+        timeOfDay: { type: string }
+        pageEighths: { type: number }
+        cast:
+          type: array
+          items: { type: string }
+        scenes:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleScene" }
+    ScheduleScene:
+      type: object
+      required: [id, number, intExt, timeOfDay, pageEighths, synopsis]
+      properties:
+        id: { type: number }
+        number: { type: number }
+        intExt: { type: string }
+        timeOfDay: { type: string }
+        pageEighths: { type: number }
+        synopsis: { type: string }
+    DayOutOfDaysRow:
+      type: object
+      required: [castMember, statuses]
+      properties:
+        castMember: { type: string }
+        statuses:
+          type: array
+          items:
+            type: string
+            enum: [Work, Hold, Travel, Off]
 

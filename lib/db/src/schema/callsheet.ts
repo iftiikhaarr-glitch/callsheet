@@ -18,6 +18,8 @@ export const callsheetProjectsTable = pgTable("callsheet_projects", {
   sceneCount: integer("scene_count").notNull().default(0),
   progress: integer("progress").notNull().default(0),
   errorMessage: text("error_message"),
+  schedule: jsonb("schedule"),
+  scheduleError: text("schedule_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

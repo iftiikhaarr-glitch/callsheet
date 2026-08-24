@@ -7,6 +7,8 @@
  */
 
 export * from './castRole';
+export * from './dayOutOfDaysRow';
+export * from './dayOutOfDaysRowStatusesItem';
 export * from './healthStatus';
 export * from './project';
 export * from './projectDetail';
@@ -17,5 +19,8 @@ export * from './scene';
 export * from './sceneElements';
 export * from './sceneUpdate';
 export * from './sceneUpdateElements';
+export * from './scheduleDay';
+export * from './scheduleScene';
 export * from './screenplayUpload';
+export * from './shootingSchedule';
 export * from './summary';

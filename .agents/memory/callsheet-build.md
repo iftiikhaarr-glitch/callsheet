@@ -20,3 +20,9 @@ Uploaded screenplay bytes, results, and worker failures must survive service res
 **Why:** Multer memory and temporary worker files are erased at request completion; in-memory project data is erased at restart, which makes failed uploaded scripts impossible to diagnose or retry.
 
 **How to apply:** Persist the source before invoking the worker. On failure, retain the exact worker message with a failed project state; in the workspace, offer a re-run action that reads the persisted source.
+
+Shooting schedules are deterministic scene-derived plans with a Gemini explanation saved alongside the project. Treat schedule edits as stale whenever scene content or cast tags change, rather than regenerating on every tab visit.
+
+**Why:** Repeating an AI rationale can create inconsistent production guidance and unnecessary API calls; a schedule must reflect the editable breakdown that produced it.
+
+**How to apply:** Invalidate the saved plan after a scene change, then rebuild it only when the schedule view is requested. Day Out of Days statuses are screenplay-only estimates: Work on assigned days; gaps between calls are Hold at one location or Travel when locations differ; other days are Off.

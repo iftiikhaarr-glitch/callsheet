@@ -53,6 +53,12 @@ BATCH_SCHEMA = {
     "required": ["scenes"],
 }
 
+RATIONALE_SCHEMA = {
+    "type": "object",
+    "properties": {"rationale": {"type": "string"}},
+    "required": ["rationale"],
+}
+
 
 def read_script(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
@@ -112,7 +118,35 @@ SCENES:
     return json.loads(response.text or '{"scenes": []}')["scenes"]
 
 
+def generate_schedule_rationale(schedule: dict) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not configured for the API server.")
+    prompt = """You are a film production coordinator. Explain this proposed shooting schedule in one plain-English paragraph.
+Focus on the major location, INT/EXT, and day/night grouping decisions, the 40-eighth page target, and how the sequence limits scattered actor call days.
+Do not invent availability, crew rules, travel distances, or production constraints not present in the schedule.
+
+SCHEDULE:
+""" + json.dumps(schedule)
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=RATIONALE_SCHEMA,
+            temperature=0.2,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        ),
+    )
+    return json.loads(response.text or "{}").get("rationale") or "The schedule groups scenes by location and shooting conditions to reduce moves and consolidate cast calls."
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--schedule-rationale":
+        schedule = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+        print(json.dumps({"rationale": generate_schedule_rationale(schedule)}))
+        return
     if len(sys.argv) != 2:
         raise ValueError("Expected the uploaded screenplay path.")
     script = read_script(Path(sys.argv[1]))
