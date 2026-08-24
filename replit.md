@@ -39,7 +39,8 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 - PDF parsing is performed with `pdfplumber`; uploaded scenes are grouped into batches of five and processed concurrently before the API returns a ready project.
 - Uploaded screenplay bytes are retained in private App Storage, while projects, scenes, status, and worker errors persist in PostgreSQL; an uploaded project can be re-run without reselecting its file.
 - Scene elements use a category-to-string-array map, matching the industry breakdown vocabulary while allowing future categories.
-- A shooting schedule is created from persisted scene data, grouped by location then shooting conditions and ordered by cast overlap. Its Gemini rationale is saved with the result to keep reopening the tab deterministic and avoid repeat calls.
+- A shooting schedule is created from persisted scene data, grouped by normalized base location then shooting conditions and ordered by cast overlap. Its Gemini rationale is saved with the result to keep reopening the tab deterministic and avoid repeat calls.
+- Scheduling reconciles location aliases (including sublocations and descriptive prefixes) and cast-name subsets before calculating day packs or Day Out of Days rows.
 
 ## Product
 

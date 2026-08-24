@@ -26,3 +26,9 @@ Shooting schedules are deterministic scene-derived plans with a Gemini explanati
 **Why:** Repeating an AI rationale can create inconsistent production guidance and unnecessary API calls; a schedule must reflect the editable breakdown that produced it.
 
 **How to apply:** Invalidate the saved plan after a scene change, then rebuild it only when the schedule view is requested. Day Out of Days statuses are screenplay-only estimates: Work on assigned days; gaps between calls are Hold at one location or Travel when locations differ; other days are Off.
+
+Schedule grouping uses the physical base location, not the exact slug-line location, and reconciles cast aliases where one name is a subset of another. Keep `RELAY TOWER - PLATFORM` with `RELAY TOWER`, and use the fuller character name when `MARA` and `MARA VOSS` both occur.
+
+**Why:** Screenplays often distinguish set areas or use shortened character names, but production scheduling needs one location block and one cast row per real person.
+
+**How to apply:** Strip sublocation suffixes, canonicalize descriptive aliases to the shared base when token subsets match, and merge a first-name cast tag into its unambiguous longer-name counterpart before computing location groups, cast overlap, or Day Out of Days.

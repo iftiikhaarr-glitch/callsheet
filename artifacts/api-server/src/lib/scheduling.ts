@@ -64,17 +64,74 @@ function shootingWindow(timeOfDay: string) {
   return value;
 }
 
-function sceneCast(scene: ScheduleSceneInput) {
-  return scene.elements.cast ?? [];
+function primaryLocation(location: string) {
+  return location.split(/\s+-\s+/)[0].trim().toUpperCase() || location.trim().toUpperCase();
 }
 
-function groupScenes(scenes: ScheduleSceneInput[]) {
+function locationTokens(location: string) {
+  return primaryLocation(location).split(/[\s-]+/).filter(Boolean);
+}
+
+function locationLookup(scenes: ScheduleSceneInput[]) {
+  const locations = [...new Set(scenes.map((scene) => primaryLocation(scene.location)))];
+  return new Map(locations.map((location) => {
+    const aliases = locations.filter((candidate) => {
+      if (candidate === location) return false;
+      const candidateTokens = locationTokens(candidate);
+      const locationTokensSet = new Set(locationTokens(location));
+      return candidateTokens.every((token) => locationTokensSet.has(token));
+    });
+    const canonical = aliases.sort((a, b) =>
+      locationTokens(a).length - locationTokens(b).length || a.length - b.length || a.localeCompare(b),
+    )[0] ?? location;
+    return [location, canonical];
+  }));
+}
+
+function normalizedCastName(name: string) {
+  return name.toUpperCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function nameTokens(name: string) {
+  return normalizedCastName(name).split(/[\s-]+/).filter(Boolean);
+}
+
+function castNameLookup(scenes: ScheduleSceneInput[]) {
+  const names = [...new Set(scenes.flatMap((scene) => (scene.elements.cast ?? []).map(normalizedCastName)))];
+  return new Map(names.map((name) => {
+    const supersets = names.filter((candidate) => {
+      if (candidate === name) return false;
+      const candidateTokens = new Set(nameTokens(candidate));
+      return nameTokens(name).every((token) => candidateTokens.has(token));
+    });
+    const canonical = supersets.sort((a, b) =>
+      nameTokens(b).length - nameTokens(a).length || b.length - a.length || a.localeCompare(b),
+    )[0] ?? name;
+    return [name, canonical];
+  }));
+}
+
+function sceneCast(scene: ScheduleSceneInput, lookup?: Map<string, string>) {
+  return (scene.elements.cast ?? []).map(normalizedCastName).map((name) => lookup?.get(name) ?? name);
+}
+
+function mergeIntExt(first: string, second: string) {
+  const values = new Set(`${first}/${second}`.split("/").map((value) => value.trim()).filter(Boolean));
+  if (values.has("INT") && values.has("EXT")) return "INT/EXT";
+  return [...values].join("/");
+}
+
+function groupScenes(scenes: ScheduleSceneInput[], locations: Map<string, string>) {
   const groups = new Map<string, WorkGroup>();
+  const latestWindowByLocation = new Map<string, string>();
   for (const scene of scenes) {
-    const timeOfDay = shootingWindow(scene.timeOfDay);
-    const key = [scene.location, scene.intExt, timeOfDay].join("|");
+    let timeOfDay = shootingWindow(scene.timeOfDay);
+    const location = locations.get(primaryLocation(scene.location)) ?? primaryLocation(scene.location);
+    if (timeOfDay === "CONTINUOUS") timeOfDay = latestWindowByLocation.get(location) ?? timeOfDay;
+    if (timeOfDay !== "CONTINUOUS") latestWindowByLocation.set(location, timeOfDay);
+    const key = [location, timeOfDay].join("|");
     const existing = groups.get(key) ?? {
-      location: scene.location,
+      location,
       intExt: scene.intExt,
       timeOfDay,
       scenes: [],
@@ -82,13 +139,16 @@ function groupScenes(scenes: ScheduleSceneInput[]) {
       cast: new Set<string>(),
     };
     existing.scenes.push(scene);
+    existing.intExt = mergeIntExt(existing.intExt, scene.intExt);
     existing.pageEighths += scene.pageEighths;
     sceneCast(scene).forEach((member) => existing.cast.add(member));
     groups.set(key, existing);
   }
   return [...groups.values()].map((group) => ({
     ...group,
-    scenes: [...group.scenes].sort((a, b) => a.number - b.number),
+    scenes: [...group.scenes].sort((a, b) =>
+      a.intExt.localeCompare(b.intExt) || a.number - b.number,
+    ),
   }));
 }
 
@@ -202,7 +262,16 @@ function dayOutOfDays(days: ScheduleDay[]) {
 }
 
 export function buildShootingSchedule(scenes: ScheduleSceneInput[]): Omit<ShootingSchedule, "rationale"> {
-  const orderedBlocks = orderLocationBlocks(groupScenes(scenes));
+  const lookup = castNameLookup(scenes);
+  const locations = locationLookup(scenes);
+  const normalizedScenes = scenes.map((scene) => ({
+    ...scene,
+    elements: {
+      ...scene.elements,
+      cast: sceneCast(scene, lookup),
+    },
+  }));
+  const orderedBlocks = orderLocationBlocks(groupScenes(normalizedScenes, locations));
   const packedDays = packLocationGroups(orderedBlocks).map((day, index) => ({
     ...day,
     dayNumber: index + 1,
