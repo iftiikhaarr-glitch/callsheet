@@ -120,6 +120,16 @@ export const UpdateProjectResponse = zod.object({
 
 
 /**
+ * @summary Delete a project and its scenes
+ */
+export const DeleteProjectParams = zod.object({
+  "projectId": zod.coerce.number()
+})
+
+export const DeleteProjectResponse = zod.void()
+
+
+/**
  * @summary Load and process the bundled sample screenplay
  */
 export const LoadSampleProjectParams = zod.object({

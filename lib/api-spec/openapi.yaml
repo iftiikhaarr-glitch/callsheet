@@ -90,6 +90,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project and its scenes
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "204":
+          description: Project and associated scenes deleted
+        "404":
+          description: Project not found
   /projects/{projectId}/sample:
     post:
       operationId: loadSampleProject

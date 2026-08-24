@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { FileText, Play, Upload, ArrowUpRight, MoreHorizontal, X } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
-import { useCreateProject, useListProjects, useLoadSampleProject } from '@workspace/api-client-react';
+import { useCreateProject, useDeleteProject, useListProjects, useLoadSampleProject } from '@workspace/api-client-react';
 import { getListProjectsQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Project } from '@workspace/api-client-react';
@@ -24,6 +24,7 @@ export default function Home() {
   const queryClient = useQueryClient();
   const { data: projects, isLoading, isError, refetch } = useListProjects({ query: { queryKey: getListProjectsQueryKey() } });
   const createProject = useCreateProject();
+  const deleteProject = useDeleteProject();
   const loadSample = useLoadSampleProject();
   const fileInput = useRef<HTMLInputElement>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -34,7 +35,7 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
 
   const sortedProjects = useMemo(() => [...(projects || [])].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)), [projects]);
-  const isBusy = createProject.isPending || loadSample.isPending || isUploading;
+  const isBusy = createProject.isPending || loadSample.isPending || deleteProject.isPending || isUploading;
 
   const create = (sample = false) => {
     setUploadError(null);
@@ -64,6 +65,25 @@ export default function Home() {
         } else {
           setLocation(`/project/${project.id}`);
         }
+      },
+    });
+  };
+
+  const removeProject = (project: Project) => {
+    const confirmed = window.confirm(`Delete "${project.title}"?\n\nThis permanently removes the project and all of its scenes.`);
+    if (!confirmed) {
+      setActiveMenu(null);
+      return;
+    }
+    setUploadError(null);
+    deleteProject.mutate({ projectId: project.id }, {
+      onSuccess: async () => {
+        setActiveMenu(null);
+        await queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      },
+      onError: (error) => {
+        setActiveMenu(null);
+        setUploadError(error instanceof Error ? error.message : 'That project could not be deleted.');
       },
     });
   };
@@ -119,7 +139,7 @@ export default function Home() {
                     <StatusPill status={project.status} />
                     <button onClick={() => setActiveMenu(activeMenu === project.id ? null : project.id)} data-testid={`button-project-menu-${project.id}`} className="ml-auto p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><MoreHorizontal size={17} /></button>
                   </div>
-                  {activeMenu === project.id && <div className="absolute right-0 top-14 z-10 border border-border bg-popover p-1 shadow-lg"><Link href={`/project/${project.id}`} className="flex items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-secondary" data-testid={`menu-open-project-${project.id}`}><ArrowUpRight size={13} /> Open breakdown</Link></div>}
+                  {activeMenu === project.id && <div className="absolute right-0 top-14 z-10 min-w-44 border border-border bg-popover p-1 shadow-lg"><Link href={`/project/${project.id}`} onClick={() => setActiveMenu(null)} className="flex items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-secondary" data-testid={`menu-open-project-${project.id}`}><ArrowUpRight size={13} /> Open breakdown</Link><button onClick={() => removeProject(project)} disabled={deleteProject.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-destructive hover:bg-[hsl(var(--destructive)/.08)] disabled:opacity-50" data-testid={`menu-delete-project-${project.id}`}><X size={13} /> Delete project</button></div>}
                 </div>
               ))}
             </div>

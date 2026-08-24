@@ -280,6 +280,13 @@ router.patch("/projects/:projectId", async (req, res) => {
   }).where(eq(callsheetProjectsTable.id, project.id)).returning();
   return res.json(asProject(updated));
 });
+router.delete("/projects/:projectId", async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const [project] = await db.select({ id: callsheetProjectsTable.id }).from(callsheetProjectsTable).where(eq(callsheetProjectsTable.id, projectId));
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  await db.delete(callsheetProjectsTable).where(eq(callsheetProjectsTable.id, projectId));
+  return res.status(204).send();
+});
 router.post("/projects/:projectId/sample", async (req, res) => {
   const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
