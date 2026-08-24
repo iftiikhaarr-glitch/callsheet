@@ -1,10 +1,11 @@
-# [Project name]
+# Callsheet
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Callsheet turns screenplay scenes into an editable production breakdown for assistant directors.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server
+- `pnpm --filter @workspace/callsheet run dev` — run the Callsheet web app
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,7 +15,7 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- API: Express 5 with an in-memory sample breakdown service
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
@@ -22,15 +23,22 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/callsheet/src/pages/` — project entry and breakdown workspace
+- `artifacts/callsheet/src/components/` — shared Callsheet shell and UI
+- `artifacts/api-server/src/routes/projects.ts` — sample project, scene breakdown, summaries, and edits
+- `lib/api-spec/openapi.yaml` — source of truth for project and scene APIs
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The frontend uses generated API hooks so list, detail, sample-load, project edit, and scene edit all share the OpenAPI contract.
+- The first build ships a deterministic bundled screenplay path so the primary workflow is usable without external credentials.
+- Scene elements use a category-to-string-array map, matching the industry breakdown vocabulary while allowing future categories.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Project list with sample screenplay loading and new-project metadata.
+- Breakdown workspace with summary metrics, flagged scene review, search, location/type filters, and editable scene detail.
+- Scene synopsis and tagged elements can be updated and persist through the API during the running session.
 
 ## User preferences
 

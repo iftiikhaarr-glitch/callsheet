@@ -1,0 +1,84 @@
+Build a web app called "Callsheet" — an AI script breakdown tool for film production.
+
+THE PROBLEM IT SOLVES
+A 1st Assistant Director reads a screenplay and manually tags every scene with the
+elements needed to shoot it (cast, props, wardrobe, vehicles, stunts, VFX). This is
+called a "script breakdown" and takes 2-4 days per feature by hand. This app does it
+in minutes.
+
+TECH STACK — follow exactly
+- Python backend with Flask.
+- Use the `google-genai` Python SDK for all AI calls. Import it and call it at runtime
+  in the backend. Read the key from the environment variable GEMINI_API_KEY.
+- Use a current Gemini model with a large context window and PDF/document input
+  support. Check the google-genai docs for the current model ID rather than guessing.
+- Use `pdfplumber` to extract text from uploaded PDFs.
+- Store data in SQLite via SQLAlchemy.
+- Frontend: server-rendered Jinja2 templates with Tailwind via CDN. No React, no build step.
+- Do NOT use OpenAI, Anthropic, Claude, GPT, LangChain, LlamaIndex, or any non-Google
+  AI provider or agent framework. Gemini via google-genai is the only AI allowed.
+  This is a hard requirement.
+
+USER FLOW
+1. Landing page: short explanation + a drag-and-drop PDF upload box + a "Try the sample
+   script" button that loads a bundled example screenplay.
+2. After upload: a processing screen with real progress ("Parsing scenes… 12 of 88").
+3. Breakdown view: the main screen. A table of every scene, one row per scene.
+4. Scene detail: click any row to open a panel showing that scene's full tagged elements,
+   editable by the user.
+
+SCENE PARSING
+Screenplays use standard slug lines like "INT. DINER - NIGHT" or "EXT. ROOFTOP - DAY".
+Split the script on these slug lines to get individual scenes. For each scene capture:
+- scene_number (sequential)
+- int_ext ("INT", "EXT", or "INT/EXT")
+- location (e.g. "DINER")
+- time_of_day ("DAY", "NIGHT", "DAWN", "DUSK", "CONTINUOUS")
+- page_eighths (integer; screenplay scenes are measured in 1/8ths of a page —
+  estimate from character count, roughly 1 page = 55 lines = 8 eighths)
+- synopsis (one sentence, AI-generated)
+- raw_text
+
+AI BREAKDOWN
+For each scene, send the scene text to Gemini and get back structured JSON tagging
+these industry-standard element categories. Use the SDK's structured-output / JSON
+response mode with an explicit schema — do not parse free text.
+  cast (named speaking characters)
+  background (extras, e.g. "12 diner patrons")
+  props (objects handled by actors)
+  wardrobe (notable costume requirements)
+  vehicles
+  stunts
+  special_effects (practical, on-set)
+  visual_effects (post)
+  animals
+  set_dressing
+  makeup_hair (notable, e.g. "prosthetic scar")
+  sound_music (source music, needs licensing)
+Each element is a short string. Empty categories return an empty array.
+
+Batch scenes in groups of about 5 per API call for speed, and run batches concurrently
+with a thread pool. Show accurate progress as batches complete.
+
+BREAKDOWN TABLE
+Columns: Scene #, INT/EXT, Location, Day/Night, Pages (as eighths, e.g. "2 4/8"),
+Synopsis, and a count of tagged elements. Color-code the row border by time of day.
+Add filter controls at the top: filter by location, by character, and by element category
+(e.g. "show me every scene with a stunt").
+
+Also add a "Production Summary" panel above the table:
+- total scenes, total page count, unique locations, unique speaking roles
+- the full cast list with scene count per character
+- a flagged list of every stunt, VFX, animal, and vehicle scene
+
+EDITING
+Users must be able to correct the AI. In the scene detail panel let them add, edit, and
+delete any element. Persist edits to the database.
+
+DESIGN
+Dark UI, the look of professional production software, not a consumer chat app.
+Dense information, small type, monospace for scene numbers and page counts.
+Restrained accent color. It should look like a tool a working AD would keep open all day.
+
+Build this now. Make sure the app runs and the sample script processes end-to-end
+before you stop.

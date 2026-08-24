@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Callsheet"
+description = "An AI-powered script breakdown workspace for assistant directors, turning screenplay PDFs into editable production breakdowns."
+version = "1.0.0"
+id = "artifacts/callsheet"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21841
+
+[services.development]
+run = "pnpm --filter @workspace/callsheet run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/callsheet", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/callsheet/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21841"
+BASE_PATH = "/"

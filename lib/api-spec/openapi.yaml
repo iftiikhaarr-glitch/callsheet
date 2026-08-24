@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: projects
+    description: Screenplay breakdown projects
 paths:
   /healthz:
     get:
@@ -24,7 +26,117 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List breakdown projects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a breakdown project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project with its scenes
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{projectId}/sample:
+    post:
+      operationId: loadSampleProject
+      tags: [projects]
+      summary: Load and process the bundled sample screenplay
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "202":
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{projectId}/scenes/{sceneId}:
+    patch:
+      operationId: updateScene
+      tags: [projects]
+      summary: Update a scene or its tags
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SceneId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SceneUpdate"
+      responses:
+        "200":
+          description: Scene updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scene"
 components:
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: number }
+    SceneId:
+      name: sceneId
+      in: path
+      required: true
+      schema: { type: number }
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +145,82 @@ components:
           type: string
       required:
         - status
+    ProjectInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        filename: { type: ["string", "null"] }
+    ProjectUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        status: { type: string }
+    Project:
+      type: object
+      required: [id, title, filename, status, sceneCount, progress, updatedAt]
+      properties:
+        id: { type: number }
+        title: { type: string }
+        filename: { type: ["string", "null"] }
+        status: { type: string, enum: [draft, processing, ready] }
+        sceneCount: { type: number }
+        progress: { type: number }
+        updatedAt: { type: string }
+    ProjectDetail:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          required: [scenes, summary]
+          properties:
+            scenes:
+              type: array
+              items: { $ref: "#/components/schemas/Scene" }
+            summary: { $ref: "#/components/schemas/Summary" }
+    Summary:
+      type: object
+      required: [totalScenes, totalEighths, uniqueLocations, uniqueRoles, cast, flagged]
+      properties:
+        totalScenes: { type: number }
+        totalEighths: { type: number }
+        uniqueLocations: { type: number }
+        uniqueRoles: { type: number }
+        cast:
+          type: array
+          items: { $ref: "#/components/schemas/CastRole" }
+        flagged:
+          type: array
+          items: { type: string }
+    CastRole:
+      type: object
+      required: [name, sceneCount]
+      properties:
+        name: { type: string }
+        sceneCount: { type: number }
+    Scene:
+      type: object
+      required: [id, number, intExt, location, timeOfDay, pageEighths, synopsis, rawText, elements]
+      properties:
+        id: { type: number }
+        number: { type: number }
+        intExt: { type: string }
+        location: { type: string }
+        timeOfDay: { type: string }
+        pageEighths: { type: number }
+        synopsis: { type: string }
+        rawText: { type: string }
+        elements:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+    SceneUpdate:
+      type: object
+      properties:
+        synopsis: { type: string }
+        elements:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
 
