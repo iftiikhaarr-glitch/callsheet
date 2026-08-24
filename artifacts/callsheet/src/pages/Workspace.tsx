@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronRight, FileWarning, Layers3, MapPin, PanelLeft, RefreshCw, Save, Search, Tag, Users, Calendar, TrendingDown, Clock, ArrowRight, ClipboardList } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, Download, FileWarning, Layers3, MapPin, PanelLeft, RefreshCw, Save, Search, Tag, Users, Calendar, TrendingDown, Clock, ArrowRight, ClipboardList } from 'lucide-react';
 import { Link, useParams } from 'wouter';
 import { getGetProjectQueryKey, useGetProject, useUpdateProject, useUpdateScene, useGenerateShootingSchedule } from '@workspace/api-client-react';
 import type { Scene, ShootingSchedule } from '@workspace/api-client-react';
@@ -47,6 +47,9 @@ export default function Workspace() {
   const [titleDraft, setTitleDraft] = useState('');
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const scenes = project?.scenes || [];
 
@@ -145,6 +148,34 @@ export default function Workspace() {
     }
   };
 
+  const downloadExport = async (format: 'pdf' | 'csv') => {
+    setExporting(format);
+    setExportError(null);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/export/${format}`);
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(result.error || `Could not create the ${format.toUpperCase()} export.`);
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get('content-disposition') || '';
+      const filename = contentDisposition.match(/filename="([^"]+)"/i)?.[1] || `${project?.title || 'callsheet'}_breakdown.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportOpen(false);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : `Could not create the ${format.toUpperCase()} export.`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <AppShell projectTitle={project?.title}>
       <main className="min-h-[calc(100dvh-58px)] bg-background md:min-h-[100dvh]">
@@ -160,9 +191,17 @@ export default function Workspace() {
                 </div>
                 <p className="mt-2 font-mono-ui text-[10px] text-muted-foreground">{project?.filename || 'No source file'} <span className="mx-2 text-border">/</span> {project ? `${project.sceneCount} scenes` : 'Preparing workspace'}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 <div className="w-32"><div className="mb-2 flex justify-between font-mono-ui text-[9px] uppercase text-muted-foreground"><span>Breakdown</span><span>{project?.progress || 0}%</span></div><div className="h-1 bg-secondary"><div className="h-1 bg-accent transition-all duration-500" style={{ width: pct(project?.progress || 0) }} /></div></div>
                 <span data-testid="status-workspace" className={`border px-2 py-1 font-mono-ui text-[9px] uppercase tracking-wider ${project?.status === 'ready' ? 'border-[hsl(var(--chart-2)/.3)] text-[hsl(var(--chart-2))]' : project?.status === 'failed' ? 'border-[hsl(var(--destructive)/.4)] text-destructive' : 'border-accent/50 text-[hsl(28_68%_35%)]'}`}>{project?.status || 'loading'}</span>
+                <div className="relative">
+                  <button onClick={() => setExportOpen((value) => !value)} data-testid="button-export" className="inline-flex items-center gap-2 border border-border bg-card px-3 py-2 font-mono-ui text-[10px] font-bold uppercase tracking-wider hover:bg-secondary"><Download size={13} /> Export</button>
+                  {exportOpen && <div data-testid="menu-export" className="absolute right-0 z-10 mt-2 w-56 border border-border bg-card p-1 shadow-lg">
+                    <button onClick={() => void downloadExport('pdf')} disabled={exporting !== null} data-testid="button-export-pdf" className="flex w-full items-center justify-between px-3 py-2.5 text-left text-xs font-medium hover:bg-secondary disabled:opacity-50"><span>PDF breakdown report</span><span className="font-mono-ui text-[9px] text-muted-foreground">{exporting === 'pdf' ? 'Making…' : 'PDF'}</span></button>
+                    <button onClick={() => void downloadExport('csv')} disabled={exporting !== null} data-testid="button-export-csv" className="flex w-full items-center justify-between px-3 py-2.5 text-left text-xs font-medium hover:bg-secondary disabled:opacity-50"><span>CSV breakdown table</span><span className="font-mono-ui text-[9px] text-muted-foreground">{exporting === 'csv' ? 'Making…' : 'CSV'}</span></button>
+                    {exportError && <p data-testid="error-export" className="border-t border-border px-3 py-2 text-[10px] leading-4 text-destructive">{exportError}</p>}
+                  </div>}
+                </div>
               </div>
             </div>
             {isLoading ? <div className="h-16 animate-pulse bg-secondary" /> : project && <div className="border-t border-border pt-5">
@@ -302,6 +341,38 @@ function ScheduleTab({ schedule, isPending, isError, errorMessage, onRetry }: { 
         <h3 className="mb-2 font-mono-ui text-[10px] font-bold uppercase tracking-wider text-[hsl(28_68%_35%)] dark:text-accent">Scheduling Strategy</h3>
         <p className="max-w-5xl font-display text-[13px] leading-relaxed md:text-sm">{schedule.rationale}</p>
       </div>
+
+      <section className="mb-10 border border-border bg-card shadow-sm" data-testid="risk-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/35 px-5 py-4">
+          <div>
+            <p className="flex items-center gap-2 font-mono-ui text-[10px] font-bold uppercase tracking-wider text-muted-foreground"><AlertTriangle size={13} className="text-accent" /> Risk</p>
+            <p className="mt-1 text-xs text-muted-foreground">Budget and production watch items from the scheduled breakdown.</p>
+          </div>
+          {!schedule.riskError && <span className="border border-border bg-background px-2 py-1 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">{schedule.riskFlags.length} {schedule.riskFlags.length === 1 ? 'flag' : 'flags'}</span>}
+        </div>
+        {schedule.riskError ? (
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-[hsl(var(--destructive)/.05)] px-5 py-4">
+            <div><p className="text-sm font-bold text-destructive">Risk analysis could not be completed.</p><p className="mt-1 text-xs text-muted-foreground">{schedule.riskError}</p></div>
+            <button onClick={onRetry} className="inline-flex items-center gap-2 border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-secondary"><RefreshCw size={13} /> Retry analysis</button>
+          </div>
+        ) : schedule.riskFlags.length === 0 ? (
+          <div className="px-5 py-5 text-sm text-muted-foreground" data-testid="risk-empty">No material budget risks were identified from the tagged breakdown.</div>
+        ) : (
+          <div className="divide-y divide-border" data-testid="risk-list">
+            {schedule.riskFlags.map((flag, index) => {
+              const severity = flag.severity === 'high'
+                ? 'border-destructive/30 bg-[hsl(var(--destructive)/.07)] text-destructive'
+                : flag.severity === 'medium'
+                  ? 'border-accent/45 bg-[hsl(var(--accent)/.11)] text-[hsl(28_68%_35%)] dark:text-accent'
+                  : 'border-[hsl(var(--chart-2)/.35)] bg-[hsl(var(--chart-2)/.08)] text-[hsl(var(--chart-2))]';
+              return <article key={`${flag.title}-${index}`} data-testid={`risk-flag-${index}`} className="grid gap-4 px-5 py-5 lg:grid-cols-[110px_1fr]">
+                <div><span className={`inline-flex border px-2 py-1 font-mono-ui text-[9px] font-bold uppercase tracking-wider ${severity}`}>{flag.severity}</span><p className="mt-2 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">{flag.category}</p></div>
+                <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-base font-bold">{flag.title}</h3>{flag.scenes.map((scene) => <span key={scene} className="border border-border bg-background px-1.5 py-0.5 font-mono-ui text-[9px] text-muted-foreground">SC {scene}</span>)}</div><p className="mt-2 text-sm leading-6 text-muted-foreground">{flag.explanation}</p><p className="mt-3 border-l-2 border-accent pl-3 text-sm leading-6"><span className="font-bold">Recommendation:</span> {flag.recommendation}</p></div>
+              </article>;
+            })}
+          </div>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 gap-10 xl:grid-cols-[1fr_minmax(400px,.6fr)]">
         <div>

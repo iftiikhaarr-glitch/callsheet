@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Buffer } from "node:buffer";
-import { unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import multer from "multer";
@@ -15,9 +15,23 @@ import {
   type CallsheetScene,
 } from "@workspace/db";
 import { readPrivateScreenplay, savePrivateScreenplay } from "../lib/privateObjectStorage";
-import { buildShootingSchedule, type ShootingSchedule } from "../lib/scheduling";
+import { buildShootingSchedule, type RiskFlag, type ShootingSchedule } from "../lib/scheduling";
 
 type Elements = Record<string, string[]>;
+const BREAKDOWN_CATEGORIES = [
+  "cast",
+  "background",
+  "props",
+  "wardrobe",
+  "vehicles",
+  "stunts",
+  "special_effects",
+  "visual_effects",
+  "animals",
+  "set_dressing",
+  "makeup_hair",
+  "sound_music",
+];
 type Scene = {
   id: number;
   number: number;
@@ -143,6 +157,8 @@ const sampleScenes: Scene[] = [
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const pendingScheduleGenerations = new Map<number, Promise<ShootingSchedule>>();
 
+class ScheduleChangedDuringAnalysisError extends Error {}
+
 function asProject(project: CallsheetProject): Project {
   return {
     id: project.id,
@@ -224,7 +240,8 @@ async function replaceScenes(projectId: number, scenes: Scene[]) {
 
 async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }): Promise<Scene[]> {
   const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const tempPath = path.join(os.tmpdir(), `callsheet-${Date.now()}-${safeName}`);
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-breakdown-"));
+  const tempPath = path.join(tempDir, safeName);
   const workspaceRoot = path.resolve(process.cwd(), "../..");
   const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
   const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
@@ -253,7 +270,7 @@ async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }
     if (result.error || !result.scenes?.length) throw new Error(result.error || "Gemini returned no screenplay scenes.");
     return result.scenes;
   } finally {
-    await unlink(tempPath).catch(() => undefined);
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -261,7 +278,8 @@ async function runGeminiScheduleRationale(schedule: Omit<ShootingSchedule, "rati
   const workspaceRoot = path.resolve(process.cwd(), "../..");
   const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
   const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
-  const tempPath = path.join(os.tmpdir(), `callsheet-schedule-${Date.now()}.json`);
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-schedule-"));
+  const tempPath = path.join(tempDir, "schedule.json");
   await writeFile(tempPath, JSON.stringify(schedule));
   try {
     const output = await new Promise<string>((resolve, reject) => {
@@ -286,15 +304,140 @@ async function runGeminiScheduleRationale(schedule: Omit<ShootingSchedule, "rati
     if (result.error || !result.rationale) throw new Error(result.error || "Gemini returned no schedule rationale.");
     return result.rationale;
   } finally {
-    await unlink(tempPath).catch(() => undefined);
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function runGeminiScheduleRisk(schedule: Omit<ShootingSchedule, "rationale">, scenes: Scene[]): Promise<RiskFlag[]> {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
+  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-risk-"));
+  const tempPath = path.join(tempDir, "risk-input.json");
+  await writeFile(tempPath, JSON.stringify({ schedule, scenes }));
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      const worker: ChildProcessWithoutNullStreams = spawn(pythonPath, [workerPath, "--schedule-risk", tempPath], { env: process.env });
+      let stdout = "";
+      let stderr = "";
+      worker.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      worker.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      worker.on("error", reject);
+      worker.on("close", (code: number | null) => {
+        if (code === 0) return resolve(stdout);
+        try {
+          const result = JSON.parse(stderr || stdout) as { error?: string };
+          if (result.error) return reject(new Error(result.error));
+        } catch {
+          // Preserve raw worker output below.
+        }
+        return reject(new Error(stderr || stdout || `Gemini risk worker exited with code ${code}`));
+      });
+    });
+    const result = JSON.parse(output) as { riskFlags?: RiskFlag[]; error?: string };
+    if (result.error) throw new Error(result.error);
+    return Array.isArray(result.riskFlags) ? result.riskFlags : [];
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function buildReportPdf(data: { project: Project; scenes: Scene[]; schedule: ShootingSchedule }) {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
+  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-report-"));
+  const tempPath = path.join(tempDir, "report-input.json");
+  const outputPath = path.join(tempDir, "report.pdf");
+  await writeFile(tempPath, JSON.stringify(data));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const worker: ChildProcessWithoutNullStreams = spawn(pythonPath, [workerPath, "--export-pdf", tempPath, outputPath], { env: process.env });
+      let stderr = "";
+      worker.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      worker.on("error", reject);
+      worker.on("close", (code: number | null) => code === 0
+        ? resolve()
+        : reject(new Error(stderr || `PDF report worker exited with code ${code}`)));
+    });
+    return await readFile(outputPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function csvCell(value: unknown) {
+  const text = Array.isArray(value) ? value.join("; ") : String(value ?? "");
+  const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, "\"\"")}"`;
+}
+
+function buildBreakdownCsv(scenes: Scene[]) {
+  const categories = [...new Set([
+    ...BREAKDOWN_CATEGORIES,
+    ...scenes.flatMap((scene) => Object.keys(scene.elements || {})),
+  ])];
+  const headers = ["Scene", "INT/EXT", "Location", "Time of day", "Page eighths", "Synopsis", ...categories.map((category) => category.replace(/_/g, " "))];
+  const rows = scenes.map((scene) => [
+    scene.number,
+    scene.intExt,
+    scene.location,
+    scene.timeOfDay,
+    scene.pageEighths,
+    scene.synopsis,
+    ...categories.map((category) => scene.elements?.[category] ?? []),
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function reportSchedule(project: CallsheetProject, scenes: Scene[]) {
+  return project.schedule
+    ? project.schedule as ShootingSchedule
+    : {
+      ...buildShootingSchedule(scenes),
+      rationale: "This schedule was generated from the current breakdown for export.",
+      riskFlags: [],
+      riskError: null,
+    };
+}
+
+async function attachRiskToSchedule(projectId: number, schedule: ShootingSchedule): Promise<ShootingSchedule> {
+  const project = await findProject(projectId);
+  if (!project) throw new Error("Project not found");
+  const scenes = (await db.select().from(callsheetScenesTable).where(eq(callsheetScenesTable.projectId, project.id)).orderBy(asc(callsheetScenesTable.number))).map(asScene);
+  const riskFlags = await runGeminiScheduleRisk(schedule, scenes);
+  const updatedSchedule: ShootingSchedule = { ...schedule, riskFlags, riskError: null };
+  const [saved] = await db.update(callsheetProjectsTable).set({
+    schedule: updatedSchedule,
+    scheduleError: null,
+  }).where(and(
+    eq(callsheetProjectsTable.id, project.id),
+    eq(callsheetProjectsTable.updatedAt, project.updatedAt),
+  )).returning({ id: callsheetProjectsTable.id });
+  if (!saved) throw new ScheduleChangedDuringAnalysisError("The breakdown changed while production risks were being analyzed.");
+  return updatedSchedule;
 }
 
 async function createScheduleFromLatestScenes(projectId: number): Promise<ShootingSchedule> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const project = await findProject(projectId);
     if (!project) throw new Error("Project not found");
-    if (project.schedule) return project.schedule as ShootingSchedule;
+    if (project.schedule) {
+      const savedSchedule = project.schedule as ShootingSchedule;
+      if (Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return savedSchedule;
+      try {
+        return await attachRiskToSchedule(projectId, savedSchedule);
+      } catch (error) {
+        if (error instanceof ScheduleChangedDuringAnalysisError) continue;
+        const riskError = error instanceof Error ? error.message : "Production risk analysis failed.";
+        const failedSchedule = { ...savedSchedule, riskFlags: savedSchedule.riskFlags ?? [], riskError };
+        const [saved] = await db.update(callsheetProjectsTable).set({ schedule: failedSchedule }).where(and(
+          eq(callsheetProjectsTable.id, project.id),
+          eq(callsheetProjectsTable.updatedAt, project.updatedAt),
+        )).returning({ id: callsheetProjectsTable.id });
+        if (saved) return failedSchedule;
+      }
+    }
 
     const sourceUpdatedAt = project.updatedAt;
     const scenes = (await db
@@ -307,7 +450,15 @@ async function createScheduleFromLatestScenes(projectId: number): Promise<Shooti
 
     const baseSchedule = buildShootingSchedule(scenes);
     const rationale = await runGeminiScheduleRationale(baseSchedule);
-    const schedule: ShootingSchedule = { ...baseSchedule, rationale };
+    let riskFlags: RiskFlag[] = [];
+    let riskError: string | null = null;
+    const scheduleWithoutRationale = { ...baseSchedule, rationale };
+    try {
+      riskFlags = await runGeminiScheduleRisk(scheduleWithoutRationale, scenes);
+    } catch (error) {
+      riskError = error instanceof Error ? error.message : "Production risk analysis failed.";
+    }
+    const schedule: ShootingSchedule = { ...scheduleWithoutRationale, riskFlags, riskError };
     const [saved] = await db.update(callsheetProjectsTable).set({
       schedule,
       scheduleError: null,
@@ -416,7 +567,10 @@ router.post("/projects/:projectId/process", upload.single("file"), async (req, r
 router.post("/projects/:projectId/schedule", async (req, res) => {
   const project = await findProject(Number(req.params.projectId));
   if (!project) return res.status(404).json({ error: "Project not found" });
-  if (project.schedule) return res.status(201).json(project.schedule as ShootingSchedule);
+  if (project.schedule) {
+    const savedSchedule = project.schedule as ShootingSchedule;
+    if (Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return res.status(201).json(savedSchedule);
+  }
 
   const pending = pendingScheduleGenerations.get(project.id);
   if (pending) {
@@ -440,6 +594,45 @@ router.post("/projects/:projectId/schedule", async (req, res) => {
     return res.status(502).json({ error: message });
   } finally {
     pendingScheduleGenerations.delete(project.id);
+  }
+});
+router.get("/projects/:projectId/export/csv", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  const scenes = (await db
+    .select()
+    .from(callsheetScenesTable)
+    .where(eq(callsheetScenesTable.projectId, project.id))
+    .orderBy(asc(callsheetScenesTable.number)))
+    .map(asScene);
+  const filename = `${project.title.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "callsheet"}_breakdown.csv`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.send(`\uFEFF${buildBreakdownCsv(scenes)}`);
+});
+router.get("/projects/:projectId/export/pdf", async (req, res) => {
+  const project = await findProject(Number(req.params.projectId));
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  try {
+    const scenes = (await db
+      .select()
+      .from(callsheetScenesTable)
+      .where(eq(callsheetScenesTable.projectId, project.id))
+      .orderBy(asc(callsheetScenesTable.number)))
+      .map(asScene);
+    const pdf = await buildReportPdf({
+      project: asProject(project),
+      scenes,
+      schedule: reportSchedule(project, scenes),
+    });
+    const filename = `${project.title.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "callsheet"}_breakdown.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(pdf);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "PDF report generation failed.";
+    req.log.error({ err: error }, "PDF report generation failed");
+    return res.status(502).json({ error: message });
   }
 });
 router.patch("/projects/:projectId/scenes/:sceneId", async (req, res) => {

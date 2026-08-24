@@ -25,10 +25,10 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 
 - `artifacts/callsheet/src/pages/` — project entry and breakdown workspace
 - `artifacts/callsheet/src/components/` — shared Callsheet shell and UI
-- `artifacts/api-server/src/routes/projects.ts` — sample project, upload orchestration, scene breakdown, schedule generation, summaries, and edits
+- `artifacts/api-server/src/routes/projects.ts` — sample project, upload orchestration, scene breakdown, schedule generation, risk analysis, exports, summaries, and edits
 - `artifacts/api-server/src/lib/privateObjectStorage.ts` — private App Storage upload and download helpers for source screenplays
 - `artifacts/api-server/src/lib/scheduling.ts` — deterministic location and cast-aware shooting-schedule algorithm
-- `artifacts/api-server/breakdown_worker.py` — PDF text extraction, slug-line parsing, and Gemini breakdown/schedule rationale generation
+- `artifacts/api-server/breakdown_worker.py` — PDF text extraction, slug-line parsing, Gemini breakdown/schedule/risk analysis, and reportlab PDF generation
 - `lib/db/src/schema/callsheet.ts` — persistent project, uploaded-source reference, schedule, processing errors, and scene records
 - `lib/api-spec/openapi.yaml` — source of truth for project and scene APIs
 
@@ -41,13 +41,16 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 - Scene elements use a category-to-string-array map, matching the industry breakdown vocabulary while allowing future categories.
 - A shooting schedule is created from persisted scene data, grouped by normalized base location then shooting conditions and ordered by cast overlap. Its Gemini rationale is saved with the result to keep reopening the tab deterministic and avoid repeat calls.
 - Scheduling reconciles location aliases (including sublocations and descriptive prefixes) and cast-name subsets before calculating day packs or Day Out of Days rows.
+- Gemini production-risk flags are generated with a schedule, validated against the current scene numbers, and saved in the schedule payload. A failed risk analysis is retryable without discarding the usable schedule.
+- PDF and CSV exports read the latest saved scene breakdown. PDF reports are generated with reportlab and include the production summary, full scene elements, and schedule; CSV exports escape spreadsheet-formula-leading content.
 
 ## Product
 
 - Project list with sample screenplay loading and new-project metadata.
 - Breakdown workspace with summary metrics, flagged scene review, search, location/type filters, and editable scene detail.
 - Scene synopsis and tagged elements can be updated and persist through the API during the running session.
-- Shooting Schedule tab with daily packs, script-order comparison, scheduling rationale, and Day Out of Days cast grid.
+- Shooting Schedule tab with daily packs, script-order comparison, scheduling rationale, budget-risk panel, and Day Out of Days cast grid.
+- Workspace export control for PDF breakdown reports and CSV breakdown tables.
 
 ## User preferences
 

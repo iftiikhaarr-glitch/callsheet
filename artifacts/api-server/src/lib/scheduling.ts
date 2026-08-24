@@ -38,6 +38,17 @@ export type DayOutOfDaysRow = {
   statuses: DayStatus[];
 };
 
+export type RiskSeverity = "high" | "medium" | "low";
+
+export type RiskFlag = {
+  severity: RiskSeverity;
+  category: string;
+  title: string;
+  explanation: string;
+  scenes: number[];
+  recommendation: string;
+};
+
 export type ShootingSchedule = {
   targetEighths: number;
   totalDays: number;
@@ -46,6 +57,8 @@ export type ShootingSchedule = {
   rationale: string;
   days: ScheduleDay[];
   dayOutOfDays: DayOutOfDaysRow[];
+  riskFlags: RiskFlag[];
+  riskError?: string | null;
 };
 
 type WorkGroup = {
@@ -285,5 +298,7 @@ export function buildShootingSchedule(scenes: ScheduleSceneInput[]): Omit<Shooti
     daysSaved: Math.max(0, scriptOrderDays - packedDays.length),
     days: packedDays,
     dayOutOfDays: dayOutOfDays(packedDays),
+    riskFlags: [],
+    riskError: null,
   };
 }

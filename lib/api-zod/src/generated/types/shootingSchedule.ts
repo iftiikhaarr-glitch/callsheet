@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DayOutOfDaysRow } from './dayOutOfDaysRow';
+import type { RiskFlag } from './riskFlag';
 import type { ScheduleDay } from './scheduleDay';
 
 export interface ShootingSchedule {
@@ -16,4 +17,7 @@ export interface ShootingSchedule {
   rationale: string;
   days: ScheduleDay[];
   dayOutOfDays: DayOutOfDaysRow[];
+  riskFlags: RiskFlag[];
+  /** @nullable */
+  riskError: string | null;
 }

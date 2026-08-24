@@ -32,3 +32,9 @@ Schedule grouping uses the physical base location, not the exact slug-line locat
 **Why:** Screenplays often distinguish set areas or use shortened character names, but production scheduling needs one location block and one cast row per real person.
 
 **How to apply:** Strip sublocation suffixes, canonicalize descriptive aliases to the shared base when token subsets match, and merge a first-name cast tag into its unambiguous longer-name counterpart before computing location groups, cast overlap, or Day Out of Days.
+
+Production-risk findings belong to the saved schedule, but a risk-analysis failure must never replace or revive a schedule invalidated by a scene edit. Export reports should always read the latest saved scene data rather than relying on client-side state.
+
+**Why:** A schedule is production guidance, so stale AI flags are worse than missing flags; exports need to reflect the corrected breakdown the user has saved.
+
+**How to apply:** Guard risk-result and risk-error persistence with the project version that produced the request, retry from current data after a conflict, validate every Gemini scene reference against the supplied scene list, and generate PDF/CSV output server-side from persisted scenes.

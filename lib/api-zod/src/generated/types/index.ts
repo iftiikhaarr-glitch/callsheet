@@ -15,6 +15,8 @@ export * from './projectDetail';
 export * from './projectInput';
 export * from './projectStatus';
 export * from './projectUpdate';
+export * from './riskFlag';
+export * from './riskFlagSeverity';
 export * from './scene';
 export * from './sceneElements';
 export * from './sceneUpdate';

@@ -722,6 +722,160 @@ export const useGenerateShootingSchedule = <TError = ErrorType<void>,
       return useMutation(getGenerateShootingScheduleMutationOptions(options));
     }
 
+export const getExportBreakdownCsvUrl = (projectId: number,) => {
+
+
+
+
+  return `/api/projects/${projectId}/export/csv`
+}
+
+/**
+ * @summary Download the editable scene breakdown as CSV
+ */
+export const exportBreakdownCsv = async (projectId: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportBreakdownCsvUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportBreakdownCsvQueryKey = (projectId: number,) => {
+    return [
+    `/api/projects/${projectId}/export/csv`
+    ] as const;
+    }
+
+
+export const getExportBreakdownCsvQueryOptions = <TData = Awaited<ReturnType<typeof exportBreakdownCsv>>, TError = ErrorType<void>>(projectId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportBreakdownCsvQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportBreakdownCsv>>> = ({ signal }) => exportBreakdownCsv(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownCsv>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportBreakdownCsvQueryResult = NonNullable<Awaited<ReturnType<typeof exportBreakdownCsv>>>
+export type ExportBreakdownCsvQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download the editable scene breakdown as CSV
+ */
+
+export function useExportBreakdownCsv<TData = Awaited<ReturnType<typeof exportBreakdownCsv>>, TError = ErrorType<void>>(
+ projectId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportBreakdownCsvQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportBreakdownPdfUrl = (projectId: number,) => {
+
+
+
+
+  return `/api/projects/${projectId}/export/pdf`
+}
+
+/**
+ * @summary Download a full breakdown and shooting schedule PDF report
+ */
+export const exportBreakdownPdf = async (projectId: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportBreakdownPdfUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportBreakdownPdfQueryKey = (projectId: number,) => {
+    return [
+    `/api/projects/${projectId}/export/pdf`
+    ] as const;
+    }
+
+
+export const getExportBreakdownPdfQueryOptions = <TData = Awaited<ReturnType<typeof exportBreakdownPdf>>, TError = ErrorType<void>>(projectId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownPdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportBreakdownPdfQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportBreakdownPdf>>> = ({ signal }) => exportBreakdownPdf(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownPdf>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportBreakdownPdfQueryResult = NonNullable<Awaited<ReturnType<typeof exportBreakdownPdf>>>
+export type ExportBreakdownPdfQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download a full breakdown and shooting schedule PDF report
+ */
+
+export function useExportBreakdownPdf<TData = Awaited<ReturnType<typeof exportBreakdownPdf>>, TError = ErrorType<void>>(
+ projectId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportBreakdownPdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportBreakdownPdfQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getUpdateSceneUrl = (projectId: number,
     sceneId: number,) => {
 

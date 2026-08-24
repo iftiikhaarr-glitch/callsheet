@@ -204,8 +204,37 @@ export const GenerateShootingScheduleResponse = zod.object({
   "dayOutOfDays": zod.array(zod.object({
   "castMember": zod.string(),
   "statuses": zod.array(zod.enum(['Work', 'Hold', 'Travel', 'Off']))
-}))
+})),
+  "riskFlags": zod.array(zod.object({
+  "severity": zod.enum(['high', 'medium', 'low']),
+  "category": zod.string(),
+  "title": zod.string(),
+  "explanation": zod.string(),
+  "scenes": zod.array(zod.number()),
+  "recommendation": zod.string()
+})),
+  "riskError": zod.string().nullable()
 })
+
+
+/**
+ * @summary Download the editable scene breakdown as CSV
+ */
+export const ExportBreakdownCsvParams = zod.object({
+  "projectId": zod.coerce.number()
+})
+
+export const ExportBreakdownCsvResponse = zod.unknown()
+
+
+/**
+ * @summary Download a full breakdown and shooting schedule PDF report
+ */
+export const ExportBreakdownPdfParams = zod.object({
+  "projectId": zod.coerce.number()
+})
+
+export const ExportBreakdownPdfResponse = zod.unknown()
 
 
 /**

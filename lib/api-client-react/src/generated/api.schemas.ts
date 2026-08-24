@@ -123,6 +123,24 @@ export interface DayOutOfDaysRow {
   statuses: DayOutOfDaysRowStatusesItem[];
 }
 
+export type RiskFlagSeverity = typeof RiskFlagSeverity[keyof typeof RiskFlagSeverity];
+
+
+export const RiskFlagSeverity = {
+  high: 'high',
+  medium: 'medium',
+  low: 'low',
+} as const;
+
+export interface RiskFlag {
+  severity: RiskFlagSeverity;
+  category: string;
+  title: string;
+  explanation: string;
+  scenes: number[];
+  recommendation: string;
+}
+
 export interface ShootingSchedule {
   targetEighths: number;
   totalDays: number;
@@ -131,5 +149,8 @@ export interface ShootingSchedule {
   rationale: string;
   days: ScheduleDay[];
   dayOutOfDays: DayOutOfDaysRow[];
+  riskFlags: RiskFlag[];
+  /** @nullable */
+  riskError: string | null;
 }
 
