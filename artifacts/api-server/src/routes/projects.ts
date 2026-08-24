@@ -156,6 +156,7 @@ const sampleScenes: Scene[] = [
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const pendingScheduleGenerations = new Map<number, Promise<ShootingSchedule>>();
+const RISK_ANALYSIS_VERSION = 3;
 
 class ScheduleChangedDuringAnalysisError extends Error {}
 
@@ -406,7 +407,7 @@ async function attachRiskToSchedule(projectId: number, schedule: ShootingSchedul
   if (!project) throw new Error("Project not found");
   const scenes = (await db.select().from(callsheetScenesTable).where(eq(callsheetScenesTable.projectId, project.id)).orderBy(asc(callsheetScenesTable.number))).map(asScene);
   const riskFlags = await runGeminiScheduleRisk(schedule, scenes);
-  const updatedSchedule: ShootingSchedule = { ...schedule, riskFlags, riskError: null };
+  const updatedSchedule: ShootingSchedule = { ...schedule, riskAnalysisVersion: RISK_ANALYSIS_VERSION, riskFlags, riskError: null };
   const [saved] = await db.update(callsheetProjectsTable).set({
     schedule: updatedSchedule,
     scheduleError: null,
@@ -424,7 +425,7 @@ async function createScheduleFromLatestScenes(projectId: number): Promise<Shooti
     if (!project) throw new Error("Project not found");
     if (project.schedule) {
       const savedSchedule = project.schedule as ShootingSchedule;
-      if (Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return savedSchedule;
+      if (savedSchedule.riskAnalysisVersion === RISK_ANALYSIS_VERSION && Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return savedSchedule;
       try {
         return await attachRiskToSchedule(projectId, savedSchedule);
       } catch (error) {
@@ -458,7 +459,7 @@ async function createScheduleFromLatestScenes(projectId: number): Promise<Shooti
     } catch (error) {
       riskError = error instanceof Error ? error.message : "Production risk analysis failed.";
     }
-    const schedule: ShootingSchedule = { ...scheduleWithoutRationale, riskFlags, riskError };
+    const schedule: ShootingSchedule = { ...scheduleWithoutRationale, riskAnalysisVersion: RISK_ANALYSIS_VERSION, riskFlags, riskError };
     const [saved] = await db.update(callsheetProjectsTable).set({
       schedule,
       scheduleError: null,
@@ -569,7 +570,7 @@ router.post("/projects/:projectId/schedule", async (req, res) => {
   if (!project) return res.status(404).json({ error: "Project not found" });
   if (project.schedule) {
     const savedSchedule = project.schedule as ShootingSchedule;
-    if (Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return res.status(201).json(savedSchedule);
+    if (savedSchedule.riskAnalysisVersion === RISK_ANALYSIS_VERSION && Array.isArray(savedSchedule.riskFlags) && !savedSchedule.riskError) return res.status(201).json(savedSchedule);
   }
 
   const pending = pendingScheduleGenerations.get(project.id);

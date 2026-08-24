@@ -50,6 +50,7 @@ export type RiskFlag = {
 };
 
 export type ShootingSchedule = {
+  riskAnalysisVersion?: number;
   targetEighths: number;
   totalDays: number;
   scriptOrderDays: number;

@@ -179,6 +179,7 @@ export const GenerateShootingScheduleParams = zod.object({
 })
 
 export const GenerateShootingScheduleResponse = zod.object({
+  "riskAnalysisVersion": zod.number(),
   "targetEighths": zod.number(),
   "totalDays": zod.number(),
   "scriptOrderDays": zod.number(),

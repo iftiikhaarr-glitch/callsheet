@@ -319,8 +319,9 @@ components:
             items: { type: string }
     ShootingSchedule:
       type: object
-      required: [targetEighths, totalDays, scriptOrderDays, daysSaved, rationale, days, dayOutOfDays, riskFlags, riskError]
+      required: [riskAnalysisVersion, targetEighths, totalDays, scriptOrderDays, daysSaved, rationale, days, dayOutOfDays, riskFlags, riskError]
       properties:
+        riskAnalysisVersion: { type: number }
         targetEighths: { type: number }
         totalDays: { type: number }
         scriptOrderDays: { type: number }

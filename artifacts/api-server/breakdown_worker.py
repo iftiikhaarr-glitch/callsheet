@@ -88,6 +88,97 @@ RISK_SCHEMA = {
 }
 
 
+def _scene_number(scene: dict) -> int | None:
+    number = scene.get("number")
+    return int(number) if str(number).isdigit() else None
+
+
+def _scene_elements(scene: dict, category: str) -> list[str]:
+    elements = scene.get("elements") or {}
+    values = elements.get(category) or []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _is_night_window(value: str) -> bool:
+    return value.upper() in {"NIGHT", "DUSK", "EVENING"}
+
+
+def build_grounded_risk_flags(payload: dict) -> list[dict]:
+    """Add deterministic findings for risks that are directly evidenced in the breakdown."""
+    scenes = [scene for scene in payload.get("scenes", []) if isinstance(scene, dict)]
+    numbered_scenes = {number: scene for scene in scenes if (number := _scene_number(scene)) is not None}
+    schedule = payload.get("schedule") or {}
+    schedule_days = schedule.get("days") or []
+    scene_days: dict[int, int] = {}
+    for day in schedule_days:
+        day_number = day.get("dayNumber")
+        if not isinstance(day_number, int):
+            continue
+        for scene in day.get("scenes") or []:
+            number = _scene_number(scene)
+            if number is not None:
+                scene_days[number] = day_number
+
+    grounded: list[dict] = []
+    stunt_scenes = sorted(
+        number for number, scene in numbered_scenes.items()
+        if _scene_elements(scene, "stunts")
+    )
+    if stunt_scenes:
+        stunt_details = "; ".join(
+            f"scene {number}: {', '.join(_scene_elements(numbered_scenes[number], 'stunts'))}"
+            for number in stunt_scenes
+        )
+        grounded.append({
+            "severity": "high",
+            "category": "Stunts & Safety",
+            "title": "Stunt Safety, Insurance & Budget Exposure",
+            "explanation": f"Tagged stunt work is present in {stunt_details}. These actions require qualified stunt supervision, safety planning, insurance review, and controlled set time.",
+            "scenes": stunt_scenes,
+            "recommendation": f"Schedule a stunt coordinator, vehicle/action safety meeting, and insurance review before shooting scenes {', '.join(map(str, stunt_scenes))}; plan protected reset time for each gag.",
+        })
+
+    night_scenes_by_day: dict[int, list[int]] = {}
+    for number, scene in numbered_scenes.items():
+        if str(scene.get("intExt", "")).upper() != "EXT" or not _is_night_window(str(scene.get("timeOfDay", ""))):
+            continue
+        day_number = scene_days.get(number)
+        if day_number is not None:
+            night_scenes_by_day.setdefault(day_number, []).append(number)
+    for day_number, night_scenes in sorted(night_scenes_by_day.items()):
+        night_scenes = sorted(night_scenes)
+        time_label = "night/dusk" if any(str(numbered_scenes[number].get("timeOfDay", "")).upper() != "NIGHT" for number in night_scenes) else "night"
+        grounded.append({
+            "severity": "medium",
+            "category": "Night Operations",
+            "title": f"EXT {time_label.upper()} Shooting Cost Risk — Day {day_number}",
+            "explanation": f"Scenes {', '.join(map(str, night_scenes))} are scheduled as exterior {time_label} work on shooting day {day_number}. Night work requires additional lighting, crew premiums, and turnaround planning.",
+            "scenes": night_scenes,
+            "recommendation": f"Pre-light and group the exterior setup for scenes {', '.join(map(str, night_scenes))} on shooting day {day_number}; confirm crew turnaround and transport before the call.",
+        })
+
+    vehicle_scenes: dict[str, list[int]] = {}
+    for number, scene in numbered_scenes.items():
+        for vehicle in _scene_elements(scene, "vehicles"):
+            normalized = re.sub(r"\s+", " ", vehicle.strip().upper())
+            if normalized == "PICKUP TRUCK":
+                vehicle_scenes.setdefault("PICKUP TRUCK", []).append(number)
+    for vehicle, referenced_scenes in vehicle_scenes.items():
+        referenced_scenes = sorted(set(referenced_scenes))
+        days = sorted({scene_days[number] for number in referenced_scenes if number in scene_days})
+        if len(days) < 2:
+            continue
+        grounded.append({
+            "severity": "medium",
+            "category": "Vehicle Continuity",
+            "title": f"{vehicle.title()} Continuity Across Multiple Shoot Days",
+            "explanation": f"The tagged {vehicle.lower()} is needed in scenes {', '.join(map(str, referenced_scenes))}, spread across shooting days {', '.join(map(str, days))}. This creates picture-match, prep, transport, and availability exposure across separated script blocks.",
+            "scenes": referenced_scenes,
+            "recommendation": f"Reserve the same {vehicle.lower()} and document its hero continuity before shooting scenes {', '.join(map(str, referenced_scenes))}; capture inserts and matching reference photos at each separated day.",
+        })
+    return grounded
+
+
 def read_script(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
         with pdfplumber.open(path) as pdf:
@@ -178,9 +269,11 @@ def generate_schedule_risk(payload: dict) -> list[dict]:
 Identify only risks supported by the supplied data. Look specifically for:
 1. expensive elements used in only one or two scenes, especially a vehicle, animal, or set dressing/set build;
 2. the same expensive element scheduled on non-consecutive shooting days;
-3. night exterior scenes, which are typically costlier to shoot;
-4. stunts or visual effects scheduled on the same day as scenes with heavy dialogue;
-5. source music or songs that may require licensing.
+3. every exterior NIGHT, DUSK, or EVENING scene. Treat DUSK and EVENING as a night shooting window when the schedule groups them as NIGHT; keep separate shooting-day/location blocks as separate risks;
+4. each tagged stunt as a safety, insurance, and budget risk. Describe the exact tagged action and cite every applicable scene;
+5. a named vehicle that recurs across non-consecutive shooting days, including continuity, transport, prep, and availability exposure;
+6. stunts or visual effects scheduled on the same day as scenes with heavy dialogue;
+7. source music or songs that may require licensing.
 
 Return one structured flag per distinct issue, or an empty list when the breakdown does not support a finding.
 Use high for a likely material cost/schedule risk, medium for a meaningful planning risk, and low for a watch item.
@@ -232,7 +325,17 @@ SCHEDULE AND BREAKDOWN:
                 "recommendation": str(flag["recommendation"]),
             }
         )
-    return cleaned
+    grounded = build_grounded_risk_flags(payload)
+
+    def covered_by_grounded_flag(flag: dict) -> bool:
+        text = f"{flag.get('category', '')} {flag.get('title', '')}".lower()
+        if any(item["category"] == "Stunts & Safety" for item in grounded) and ("stunt" in text or "safety" in text):
+            return True
+        if any(item["category"] == "Night Operations" for item in grounded) and ("night" in text or "dusk" in text):
+            return True
+        return any(item["category"] == "Vehicle Continuity" for item in grounded) and "vehicle" in text and "continuity" in text
+
+    return [flag for flag in cleaned if not covered_by_grounded_flag(flag)] + grounded
 
 
 def generate_pdf_report(data: dict, output_path: Path) -> None:

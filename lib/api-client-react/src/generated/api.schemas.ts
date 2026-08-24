@@ -142,6 +142,7 @@ export interface RiskFlag {
 }
 
 export interface ShootingSchedule {
+  riskAnalysisVersion: number;
   targetEighths: number;
   totalDays: number;
   scriptOrderDays: number;

@@ -38,3 +38,9 @@ Production-risk findings belong to the saved schedule, but a risk-analysis failu
 **Why:** A schedule is production guidance, so stale AI flags are worse than missing flags; exports need to reflect the corrected breakdown the user has saved.
 
 **How to apply:** Guard risk-result and risk-error persistence with the project version that produced the request, retry from current data after a conflict, validate every Gemini scene reference against the supplied scene list, and generate PDF/CSV output server-side from persisted scenes.
+
+Production-risk analysis combines Gemini's script-specific review with deterministic findings for directly tagged stunts, exterior night/dusk schedule blocks, and multi-day pickup-truck use. Treat saved results as versioned analysis so stronger grounding rules refresh old flags.
+
+**Why:** The model can under-report obvious tagged production risks; reliable breakdown warnings must surface the evidence the schedule already proves, while retaining AI findings for less predictable issues.
+
+**How to apply:** Keep the deterministic findings tied to actual scene numbers and their schedule days, deduplicate overlapping Gemini categories, and bump the risk-analysis version when the grounded rules materially change.

@@ -41,7 +41,7 @@ Callsheet turns screenplay scenes into an editable production breakdown for assi
 - Scene elements use a category-to-string-array map, matching the industry breakdown vocabulary while allowing future categories.
 - A shooting schedule is created from persisted scene data, grouped by normalized base location then shooting conditions and ordered by cast overlap. Its Gemini rationale is saved with the result to keep reopening the tab deterministic and avoid repeat calls.
 - Scheduling reconciles location aliases (including sublocations and descriptive prefixes) and cast-name subsets before calculating day packs or Day Out of Days rows.
-- Gemini production-risk flags are generated with a schedule, validated against the current scene numbers, and saved in the schedule payload. A failed risk analysis is retryable without discarding the usable schedule.
+- Gemini production-risk flags are generated with a schedule, validated against the current scene numbers, and saved in the schedule payload. Deterministic evidence rules additionally surface tagged stunt safety/insurance risks, per-day exterior night/dusk work, and multi-day pickup-truck continuity so directly tagged risks are not under-reported by the model. A failed risk analysis is retryable without discarding the usable schedule.
 - PDF and CSV exports read the latest saved scene breakdown. PDF reports are generated with reportlab and include the production summary, full scene elements, and schedule; CSV exports escape spreadsheet-formula-leading content.
 
 ## Product

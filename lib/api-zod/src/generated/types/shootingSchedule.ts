@@ -10,6 +10,7 @@ import type { RiskFlag } from './riskFlag';
 import type { ScheduleDay } from './scheduleDay';
 
 export interface ShootingSchedule {
+  riskAnalysisVersion: number;
   targetEighths: number;
   totalDays: number;
   scriptOrderDays: number;
