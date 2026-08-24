@@ -352,6 +352,10 @@ def generate_pdf_report(data: dict, output_path: Path) -> None:
     def p(value, style="ReportBody"):
         return Paragraph(escape(str(value or "")).replace("\n", "<br/>"), styles[style])
 
+    def synopsis_paragraph(value):
+        synopsis = escape(str(value or "")).replace("\n", "<br/>")
+        return Paragraph(f"<b>Synopsis:</b> {synopsis}", styles["ReportBody"])
+
     document = SimpleDocTemplate(
         str(output_path),
         pagesize=letter,
@@ -391,7 +395,7 @@ def generate_pdf_report(data: dict, output_path: Path) -> None:
         elements = scene.get("elements", {})
         story += [
             p(f"Scene {scene.get('number')} · {scene.get('intExt')} · {scene.get('location')} · {scene.get('timeOfDay')} · {scene.get('pageEighths')}/8 pages", "ReportHeading"),
-            p(f"<b>Synopsis:</b> {scene.get('synopsis', '')}"),
+            synopsis_paragraph(scene.get("synopsis", "")),
         ]
         element_rows = [["Category", "Tagged elements"]]
         for category, values in elements.items():

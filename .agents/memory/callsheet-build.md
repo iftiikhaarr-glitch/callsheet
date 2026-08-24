@@ -44,3 +44,9 @@ Production-risk analysis combines Gemini's script-specific review with determini
 **Why:** The model can under-report obvious tagged production risks; reliable breakdown warnings must surface the evidence the schedule already proves, while retaining AI findings for less predictable issues.
 
 **How to apply:** Keep the deterministic findings tied to actual scene numbers and their schedule days, deduplicate overlapping Gemini categories, and bump the risk-analysis version when the grounded rules materially change.
+
+Reportlab paragraph content must escape screenplay/user text before rendering; inline formatting should be added only through a dedicated helper after dynamic values are escaped.
+
+**Why:** Passing markup through the generic escaping helper prints tags literally, while leaving dynamic screenplay text unescaped can corrupt report layout or interpret user content as formatting.
+
+**How to apply:** Keep the generic PDF paragraph helper fully escaped, construct approved labels such as bold section prefixes separately, and scan generated PDFs for literal tags when changing report markup.
