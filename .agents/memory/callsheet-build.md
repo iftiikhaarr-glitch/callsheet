@@ -50,3 +50,9 @@ Reportlab paragraph content must escape screenplay/user text before rendering; i
 **Why:** Passing markup through the generic escaping helper prints tags literally, while leaving dynamic screenplay text unescaped can corrupt report layout or interpret user content as formatting.
 
 **How to apply:** Keep the generic PDF paragraph helper fully escaped, construct approved labels such as bold section prefixes separately, and scan generated PDFs for literal tags when changing report markup.
+
+Python worker launches must discover an executable interpreter at runtime rather than assuming the development `.pythonlibs` directory exists in a published artifact.
+
+**Why:** Autoscale deployments can place the artifact under `/home` while exposing the installed Python interpreter only through a virtual-environment variable or `PATH`; a workspace-relative interpreter path fails with `ENOENT`.
+
+**How to apply:** Resolve and cache the readable worker script plus the first executable configured/virtualenv/project/`PATH` Python candidate, and use that shared runtime for breakdown, schedule, risk, and PDF worker modes.

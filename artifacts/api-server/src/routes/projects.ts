@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Buffer } from "node:buffer";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import multer from "multer";
@@ -157,8 +158,58 @@ const sampleScenes: Scene[] = [
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const pendingScheduleGenerations = new Map<number, Promise<ShootingSchedule>>();
 const RISK_ANALYSIS_VERSION = 3;
+let pythonWorkerRuntimePromise: Promise<{ pythonPath: string; workerPath: string }> | null = null;
 
 class ScheduleChangedDuringAnalysisError extends Error {}
+
+async function resolvePythonWorkerRuntime() {
+  const workspaceRoot = path.resolve(process.cwd(), "../..");
+  const workerCandidates = [
+    process.env.CALLSHEET_WORKER_PATH,
+    path.resolve(process.cwd(), "breakdown_worker.py"),
+    path.resolve(process.cwd(), "artifacts/api-server/breakdown_worker.py"),
+    path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const workerPath = await firstAccessiblePath(workerCandidates, fsConstants.R_OK);
+  if (!workerPath) {
+    throw new Error(`Callsheet Python worker was not found. Tried: ${workerCandidates.join(", ")}`);
+  }
+
+  const configuredPythonCandidates = [
+    process.env.CALLSHEET_PYTHON_PATH,
+    process.env.VIRTUAL_ENV ? path.join(process.env.VIRTUAL_ENV, "bin/python") : null,
+    path.resolve(process.cwd(), ".pythonlibs/bin/python"),
+    path.resolve(workspaceRoot, ".pythonlibs/bin/python"),
+    "python3",
+    "python",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const pythonCandidates = configuredPythonCandidates.flatMap((candidate) => {
+    if (path.isAbsolute(candidate)) return [candidate];
+    return (process.env.PATH ?? "").split(path.delimiter).filter(Boolean).map((directory) => path.join(directory, candidate));
+  });
+  const pythonPath = await firstAccessiblePath(pythonCandidates, fsConstants.X_OK);
+  if (!pythonPath) {
+    throw new Error(`No Python interpreter is available for the Callsheet worker. Tried: ${configuredPythonCandidates.join(", ")}`);
+  }
+  return { pythonPath, workerPath };
+}
+
+async function firstAccessiblePath(candidates: string[], mode: number) {
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      await access(candidate, mode);
+      return candidate;
+    } catch {
+      // Continue through the runtime candidates.
+    }
+  }
+  return null;
+}
+
+function getPythonWorkerRuntime() {
+  pythonWorkerRuntimePromise ??= resolvePythonWorkerRuntime();
+  return pythonWorkerRuntimePromise;
+}
 
 function asProject(project: CallsheetProject): Project {
   return {
@@ -243,9 +294,7 @@ async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }
   const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-breakdown-"));
   const tempPath = path.join(tempDir, safeName);
-  const workspaceRoot = path.resolve(process.cwd(), "../..");
-  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
-  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const { pythonPath, workerPath } = await getPythonWorkerRuntime();
   await writeFile(tempPath, file.buffer);
   try {
     const output = await new Promise<string>((resolve, reject) => {
@@ -276,9 +325,7 @@ async function runGeminiBreakdown(file: { buffer: Buffer; originalname: string }
 }
 
 async function runGeminiScheduleRationale(schedule: Omit<ShootingSchedule, "rationale">) {
-  const workspaceRoot = path.resolve(process.cwd(), "../..");
-  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
-  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const { pythonPath, workerPath } = await getPythonWorkerRuntime();
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-schedule-"));
   const tempPath = path.join(tempDir, "schedule.json");
   await writeFile(tempPath, JSON.stringify(schedule));
@@ -310,9 +357,7 @@ async function runGeminiScheduleRationale(schedule: Omit<ShootingSchedule, "rati
 }
 
 async function runGeminiScheduleRisk(schedule: Omit<ShootingSchedule, "rationale">, scenes: Scene[]): Promise<RiskFlag[]> {
-  const workspaceRoot = path.resolve(process.cwd(), "../..");
-  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
-  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const { pythonPath, workerPath } = await getPythonWorkerRuntime();
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-risk-"));
   const tempPath = path.join(tempDir, "risk-input.json");
   await writeFile(tempPath, JSON.stringify({ schedule, scenes }));
@@ -344,9 +389,7 @@ async function runGeminiScheduleRisk(schedule: Omit<ShootingSchedule, "rationale
 }
 
 async function buildReportPdf(data: { project: Project; scenes: Scene[]; schedule: ShootingSchedule }) {
-  const workspaceRoot = path.resolve(process.cwd(), "../..");
-  const workerPath = path.resolve(workspaceRoot, "artifacts/api-server/breakdown_worker.py");
-  const pythonPath = path.resolve(workspaceRoot, ".pythonlibs/bin/python");
+  const { pythonPath, workerPath } = await getPythonWorkerRuntime();
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "callsheet-report-"));
   const tempPath = path.join(tempDir, "report-input.json");
   const outputPath = path.join(tempDir, "report.pdf");
